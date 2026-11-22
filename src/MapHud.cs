@@ -13,13 +13,13 @@ internal sealed class MapHud : IDisposable
     private static readonly System.Reflection.FieldInfo VisibleTypes = AccessTools.Field(typeof(Minimap), "m_visibleIconTypes");
     private static readonly System.Reflection.FieldInfo SharedFade = AccessTools.Field(typeof(Minimap), "m_sharedMapDataFade");
 
-    private readonly RectTransform root, area, pinRoot, mapRoot;
+    private readonly RectTransform root, area, pinRoot, mapRoot, caption;
     private readonly CircleMap terrain;
     private readonly Image marker, ship, wind, windFace;
     private readonly TextMeshProUGUI biome, clock;
+    private readonly Image leftOrnament, rightOrnament;
     private readonly List<Image> mapPins = new();
     private readonly Compass compass;
-    private readonly StatusEffectHud effects;
     private HiddenGraphics nativeMap;
     private Minimap owner;
     private Image windSource, shipSource;
@@ -29,12 +29,10 @@ internal sealed class MapHud : IDisposable
     internal MapHud(Hud hud, RectTransform parent, Artwork art)
     {
         var font = hud.m_healthText.font;
-        TMP_Text menuLabel = Menu.instance && Menu.instance.m_continueButton
-            ? Menu.instance.m_continueButton.GetComponentInChildren<TMP_Text>(true) : null;
-        var displayFont = menuLabel ? menuLabel.font : font;
+        var displayFont = HudStyle.DisplayFont(font);
         root = ItemUi.Rect(parent, "MapHud");
         ItemUi.Stretch(root, Vector2.zero, Vector2.zero);
-        area = ItemUi.Rect(root, "MapAndEffects");
+        area = ItemUi.Rect(root, "MinimapArea");
         area.anchorMin = area.anchorMax = area.pivot = Vector2.one;
         area.anchoredPosition = new Vector2(-24, -23);
         var map = mapRoot = ItemUi.Rect(area, "RoundMinimap");
@@ -64,24 +62,23 @@ internal sealed class MapHud : IDisposable
         wind.preserveAspect = true;
         wind.rectTransform.sizeDelta = new Vector2(19, 19);
 
-        var caption = ItemUi.Image(map, "Location", art["item-card"]);
-        caption.color = new Color32(225, 214, 194, 246);
-        var captionRect = caption.rectTransform;
-        captionRect.anchorMin = captionRect.anchorMax = new Vector2(0.5f, 0);
-        captionRect.pivot = new Vector2(0.5f, 1);
-        captionRect.anchoredPosition = new Vector2(0, -9);
-        captionRect.sizeDelta = new Vector2(198, 51);
-        biome = ItemUi.Text(captionRect, "Biome", displayFont, 20, ItemUi.Ink);
+        caption = ItemUi.Rect(map, "Location");
+        caption.anchorMin = caption.anchorMax = new Vector2(0.5f, 0);
+        caption.pivot = new Vector2(0.5f, 1);
+        caption.anchoredPosition = new Vector2(0, -7);
+        var shade = HudStyle.Shadow(caption, art, 0.93f);
+        ItemUi.Stretch(shade.rectTransform, new Vector2(-30, -30), new Vector2(30, 26));
+        leftOrnament = ItemUi.Image(caption, "LeftOrnament", art["map-ornament"]);
+        rightOrnament = ItemUi.Image(caption, "RightOrnament", art["map-ornament"]);
+        leftOrnament.color = rightOrnament.color = ItemUi.Accent;
+        rightOrnament.rectTransform.localScale = new Vector3(-1, 1, 1);
+        biome = ItemUi.Text(caption, "Biome", displayFont, 20, ItemUi.Ink);
         biome.alignment = TextAlignmentOptions.Center;
         biome.overflowMode = TextOverflowModes.Ellipsis;
         biome.textWrappingMode = TextWrappingModes.NoWrap;
-        ItemUi.TopLeft(biome.rectTransform, 8, 4, 182, 25);
-        clock = ItemUi.Text(captionRect, "WorldTime", displayFont, 17, ItemUi.Accent);
+        clock = ItemUi.Text(caption, "WorldTime", displayFont, 17, ItemUi.Accent);
         clock.alignment = TextAlignmentOptions.Center;
-        ItemUi.TopLeft(clock.rectTransform, 8, 29, 182, 19);
-
-        effects = new StatusEffectHud(hud, area, art);
-        compass = new Compass(root, art, font);
+        compass = new Compass(root, art, font, displayFont);
     }
 
     internal void Refresh(Player player, bool visible)
@@ -110,9 +107,12 @@ internal sealed class MapHud : IDisposable
         if (size != lastSize)
         {
             area.sizeDelta = new Vector2(size, size);
+            caption.sizeDelta = new Vector2(size, 48);
+            ItemUi.TopLeft(biome.rectTransform, 24, 1, size - 48, 27);
+            ItemUi.TopLeft(clock.rectTransform, 0, 27, size, 20);
+            AlignOrnaments(size);
             lastSize = size;
         }
-        effects.Refresh(player, mapVisible ? size + 13 : 0);
         var pins = map ? Pins?.GetValue(map) as List<Minimap.PinData> : null;
         if (mapVisible)
         {
@@ -134,7 +134,10 @@ internal sealed class MapHud : IDisposable
         if (terrain.uvRect != source.uvRect) terrain.uvRect = source.uvRect;
 
         if (map.m_biomeNameSmall && biome.text != map.m_biomeNameSmall.text)
+        {
             biome.text = map.m_biomeNameSmall.text;
+            AlignOrnaments(size);
+        }
         if (EnvMan.instance)
         {
             int minute = Mathf.FloorToInt(Mathf.Repeat(EnvMan.instance.GetDayFraction(), 1) * 1440);
@@ -185,10 +188,17 @@ internal sealed class MapHud : IDisposable
         for (int i = shown; i < mapPins.Count; i++) mapPins[i].enabled = false;
     }
 
+    private void AlignOrnaments(float size)
+    {
+        float textWidth = Mathf.Min(size - 48, biome.GetPreferredValues(biome.text).x);
+        float width = (size - textWidth) * 0.5f - 8;
+        HudStyle.Center(leftOrnament.rectTransform, (width - size) * 0.5f, 9, width, 10);
+        HudStyle.Center(rightOrnament.rectTransform, (size - width) * 0.5f, 9, width, 10);
+    }
+
     public void Dispose()
     {
         nativeMap?.Restore();
-        effects.Dispose();
         ItemUi.Destroy(root);
     }
 }

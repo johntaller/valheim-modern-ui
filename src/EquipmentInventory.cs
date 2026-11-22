@@ -1,4 +1,5 @@
 using HarmonyLib;
+using System.Collections.Generic;
 using UnityEngine;
 using Item = ItemDrop.ItemData;
 using ItemType = ItemDrop.ItemData.ItemType;
@@ -8,6 +9,7 @@ namespace ValheimNewUI;
 internal static class EquipmentInventory
 {
     internal const int SlotCount = 6;
+    private const int MaxBackpackRows = 9;
     private const string OriginalRowsKey = "valheimnewui_base_rows";
     private static readonly ItemType[] SlotTypes =
     {
@@ -25,12 +27,14 @@ internal static class EquipmentInventory
     private static Inventory active;
     private static int rows;
     private static bool recoveryBlocked;
+    private static bool enabledInWorld, spawning;
     private static Item upgrading;
 
     internal static int ReservedRow(Inventory inventory) => active != null && inventory == active ? rows : -1;
 
     internal static void Refresh(bool enabled)
     {
+        enabledInWorld = enabled;
         var player = Player.m_localPlayer;
         if (!player || player != spawned || !InventoryGui.instance || player.IsTeleporting() || player.IsDead())
         {
@@ -39,20 +43,13 @@ internal static class EquipmentInventory
         }
 
         var inventory = player.GetInventory();
-        if (!player.TryGetUniqueKeyValue(OriginalRowsKey, out var stored) || !int.TryParse(stored, out int original))
+        if (!TryReadBackpackRows(player, out int original) || inventory.GetHeight() != original + 1)
         {
             original = inventory.GetHeight();
-            if (!enabled || original < 2 || original >= 9 || inventory.GetWidth() < SlotCount) return;
-            // Persist a valid stock inventory size so a save remains readable even
-            // when the DLL is removed before the feature is disabled in game.
-            player.AddUniqueKeyValue(OriginalRowsKey, original.ToString());
-            player.SetInventorySize(original + 1);
-        }
-
-        if (original < 2 || original >= 9 || inventory.GetHeight() != original + 1)
-        {
-            active = null;
-            player.RemoveUniqueKeyValue(OriginalRowsKey);
+            if (enabled && original >= 1 && original <= MaxBackpackRows && inventory.GetWidth() >= SlotCount)
+                Resize(player, inventory, original);
+            else
+                active = null;
             return;
         }
 
@@ -69,12 +66,75 @@ internal static class EquipmentInventory
         PlaceEquipment(inventory);
     }
 
+    private static bool TryReadBackpackRows(Player player, out int original)
+    {
+        original = 0;
+        return player.TryGetUniqueKeyValue(OriginalRowsKey, out var stored) && int.TryParse(stored, out original)
+            && original >= 1 && original <= MaxBackpackRows;
+    }
+
+    private static int EquipmentSlot(Item item) =>
+        item.m_equipped ? System.Array.IndexOf(SlotTypes, item.m_shared.m_itemType) : -1;
+
+    private static void Resize(Player player, Inventory inventory, int backpackRows)
+    {
+        var items = inventory.GetAllItems();
+        int quests = 0;
+        foreach (var item in items)
+            if (item.m_shared.m_questItem && EquipmentSlot(item) < 0) quests++;
+        if (quests > backpackRows * inventory.GetWidth())
+        {
+            player.Message(MessageHud.MessageType.Center, "$inventory_full");
+            return;
+        }
+
+        // Repack before the native invalid-item sweep. Equipped items retain their
+        // actual ItemData and equipped state across both growth and shrinkage.
+        foreach (var item in items)
+            if (EquipmentSlot(item) >= 0 || item.m_gridPos.y >= backpackRows)
+                item.m_gridPos = new Vector2i(item.m_gridPos.x, backpackRows + 1);
+        foreach (var item in items)
+        {
+            int slot = EquipmentSlot(item);
+            if (slot >= 0 && inventory.GetItemAt(slot, backpackRows) == null)
+                item.m_gridPos = new Vector2i(slot, backpackRows);
+        }
+        foreach (var item in items)
+        {
+            if (!item.m_shared.m_questItem || item.m_gridPos.y <= backpackRows) continue;
+            var free = FindBackpackSlot(inventory, backpackRows, false);
+            if (free.x < 0)
+            {
+                var regular = items.Find(other => !other.m_shared.m_questItem && other.m_gridPos.y < backpackRows);
+                free = regular.m_gridPos;
+                regular.m_gridPos = new Vector2i(free.x, backpackRows + 1);
+            }
+            item.m_gridPos = free;
+        }
+        foreach (var item in items)
+        {
+            if (item.m_gridPos.y <= backpackRows) continue;
+            var free = FindBackpackSlot(inventory, backpackRows, false);
+            if (free.x < 0) break;
+            item.m_gridPos = free;
+        }
+
+        if (DragInventory(InventoryGui.instance) == inventory) SetupDrag(InventoryGui.instance, null, null, 1);
+        active = inventory;
+        rows = backpackRows;
+        recoveryBlocked = false;
+        inventory.SetHeight(rows + 1);
+        player.AddUniqueKeyValue(OriginalRowsKey, rows.ToString());
+        player.AddUniqueKeyValue("invrows", rows.ToString());
+        InventoryGui.instance.SetInventorySize(rows + 1);
+        player.DropInvalidItems();
+    }
+
     private static void PlaceEquipment(Inventory inventory)
     {
         foreach (var item in inventory.GetAllItems())
         {
-            if (!item.m_equipped) continue;
-            int slot = System.Array.IndexOf(SlotTypes, item.m_shared.m_itemType);
+            int slot = EquipmentSlot(item);
             if (slot < 0) continue;
             var occupant = inventory.GetItemAt(slot, rows);
             if (occupant == item) continue;
@@ -153,12 +213,62 @@ internal static class EquipmentInventory
     [HarmonyPatch(typeof(Player), nameof(Player.OnSpawned))]
     private static class Spawned
     {
-        private static void Postfix(Player __instance)
+        private static void Prefix(Player __instance)
         {
             if (__instance != Player.m_localPlayer) return;
+            spawning = true;
             spawned = __instance;
             active = null;
             recoveryBlocked = false;
+        }
+
+        private static void Finalizer(Player __instance)
+        {
+            if (__instance == spawned) spawning = false;
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), nameof(Player.SetInventorySize))]
+    private static class ResizeBackpack
+    {
+        private static bool Prefix(Player __instance, int rows)
+        {
+            if (!enabledInWorld || __instance != Player.m_localPlayer || !InventoryGui.instance) return true;
+            var inventory = __instance.GetInventory();
+            if (inventory.GetWidth() < SlotCount) return true;
+            if (spawning && TryReadBackpackRows(__instance, out int saved)) rows = saved;
+            else if (ReservedRow(inventory) < 0) return true;
+            Resize(__instance, inventory, Mathf.Clamp(rows, 1, MaxBackpackRows));
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), nameof(Player.Save), typeof(ZPackage))]
+    private static class SaveBackpack
+    {
+        private static void Prefix(Player __instance, out List<(Item Item, Vector2i Position)> __state)
+        {
+            __state = null;
+            if (__instance != Player.m_localPlayer) return;
+            var inventory = __instance.GetInventory();
+            int reserved = ReservedRow(inventory);
+            if (reserved < 0) return;
+            // Save into ordinary free cells whenever possible. When the DLL is
+            // removed, Valheim drops only the overflow on its next spawn.
+            foreach (var item in inventory.GetAllItems())
+            {
+                if (item.m_gridPos.y != reserved) continue;
+                var free = FindBackpackSlot(inventory, reserved, false);
+                if (free.x < 0) break;
+                (__state ??= new()).Add((item, item.m_gridPos));
+                item.m_gridPos = free;
+            }
+        }
+
+        private static void Finalizer(List<(Item Item, Vector2i Position)> __state)
+        {
+            if (__state == null) return;
+            foreach (var (item, position) in __state) item.m_gridPos = position;
         }
     }
 

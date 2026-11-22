@@ -231,7 +231,8 @@ internal sealed class ItemInterface : IDisposable
         private readonly Animator animator;
         private readonly Artwork art;
         private readonly TMP_FontAsset font;
-        private readonly RectTransform root, rowHost;
+        private readonly RectTransform root, rowHost, canvasRect, playerGridRoot;
+        private readonly Vector3 gridScale;
         private readonly Vector2 restingPosition, containerPosition;
         private readonly RectTransform container;
         private readonly InventoryGrid containerGrid;
@@ -245,6 +246,7 @@ internal sealed class ItemInterface : IDisposable
         private readonly AutoPickupToggle pickup;
         private readonly EquipmentPanel equipment;
         private HiddenGraphics nativeArmor;
+        private HiddenGraphics closedBackpack;
         private readonly RectTransform armorBadge;
         private readonly Vector2 armorPosition;
         private readonly List<PanelBackdrop> oldBackdrops = new();
@@ -267,6 +269,9 @@ internal sealed class ItemInterface : IDisposable
             this.art = art;
             this.font = font;
             root = gui.m_player;
+            canvasRect = (RectTransform)canvas.transform;
+            playerGridRoot = gui.m_playerGrid.m_gridRoot;
+            gridScale = playerGridRoot.localScale;
             restingPosition = root.anchoredPosition;
             container = gui.m_container;
             if (container)
@@ -346,6 +351,8 @@ internal sealed class ItemInterface : IDisposable
             {
                 slideStarted = Time.unscaledTime;
                 wasOpen = true;
+                closedBackpack?.Restore();
+                closedBackpack = null;
                 rowHost.gameObject.SetActive(true);
             }
 
@@ -408,8 +415,9 @@ internal sealed class ItemInterface : IDisposable
             foreach (var dead in deadCells) cells.Remove(dead);
             deadCells.Clear();
 
-            if (firstBagSlot && lastBagSlot)
+            if (firstBagSlot && lastBagSlot || equipmentRow == 1 && gear.Count > 0)
             {
+                FitBackpack(firstBagSlot, lastBagSlot, firstQuickSlot, pitch);
                 AlignBag(firstBagSlot, lastBagSlot, firstQuickSlot, pitch, equipmentRow >= 0);
                 if (equipmentRow >= 0) equipment.Refresh(player, equipmentRow);
                 UpdateWeight(player);
@@ -521,21 +529,38 @@ internal sealed class ItemInterface : IDisposable
         private float SlideWidth(float pitch, bool showEquipment) => root.rect.width + pitch * 2
             + (showEquipment ? EquipmentPanel.Width + EquipmentPanel.Gap : 0);
 
+        private void FitBackpack(RectTransform first, RectTransform last, RectTransform quickSlot, float pitch)
+        {
+            if (!first || !last)
+            {
+                playerGridRoot.localScale = gridScale;
+                return;
+            }
+            float top = first.TransformPoint(new Vector2(first.rect.xMin, first.rect.yMax)).y;
+            float bottom = last.TransformPoint(new Vector2(last.rect.xMax, last.rect.yMin)).y;
+            float baseline = quickSlot.TransformPoint(quickSlot.rect.center + Vector2.down * (pitch + 22)).y;
+            float floor = canvasRect.TransformPoint(new Vector2(0, canvasRect.rect.yMin + VitalsView.Clearance + 54)).y;
+            float current = playerGridRoot.localScale.y / gridScale.y;
+            float scale = Mathf.Clamp((baseline - floor) / Mathf.Max(1, (top - bottom) / current), 0.28f, 1);
+            if (!Mathf.Approximately(current, scale)) playerGridRoot.localScale = gridScale * scale;
+        }
+
         private void AlignBag(RectTransform first, RectTransform last, RectTransform quickSlot, float pitch, bool showEquipment)
         {
             var baseline = quickSlot.TransformPoint(quickSlot.rect.center + Vector2.down * (pitch + 22));
-            var center = first.TransformPoint(first.rect.center);
+            var center = first ? first.TransformPoint(first.rect.center) :
+                root.TransformPoint(new Vector2(root.rect.xMin + pitch / 2, root.rect.yMax - pitch / 2));
             var target = root.position + baseline - center;
             float time = Mathf.Clamp01((Time.unscaledTime - slideStarted) / SlideSeconds);
             float remaining = 1 - time;
             float distance = Mathf.Abs(root.TransformVector(Vector3.right * SlideWidth(pitch, showEquipment)).x);
             root.position = new Vector3(target.x - distance * remaining * remaining * remaining, target.y, target.z);
 
-            var topLeft = root.InverseTransformPoint(first.TransformPoint(new Vector2(first.rect.xMin, first.rect.yMax)));
-            var bottomRight = root.InverseTransformPoint(last.TransformPoint(new Vector2(last.rect.xMax, last.rect.yMin)));
-            var bounds = Mathf.Max(0, topLeft.y - bottomRight.y) <= root.rect.height
-                ? Rect.MinMaxRect(topLeft.x, bottomRight.y, bottomRight.x, topLeft.y)
-                : Rect.MinMaxRect(topLeft.x, Mathf.Max(root.rect.yMin + 12, bottomRight.y), bottomRight.x, topLeft.y);
+            var topLeft = first ? root.InverseTransformPoint(first.TransformPoint(new Vector2(first.rect.xMin, first.rect.yMax)))
+                : new Vector3(root.rect.xMin, root.rect.yMax - pitch / 2);
+            var bottomRight = last ? root.InverseTransformPoint(last.TransformPoint(new Vector2(last.rect.xMax, last.rect.yMin)))
+                : topLeft + Vector3.right * (pitch * QuickSlots);
+            var bounds = Rect.MinMaxRect(topLeft.x, bottomRight.y, bottomRight.x, topLeft.y);
             if (!laidOut || (bounds.position - lastBounds.position).sqrMagnitude > 0.01f
                 || (bounds.size - lastBounds.size).sqrMagnitude > 0.01f)
             {
@@ -611,6 +636,11 @@ internal sealed class ItemInterface : IDisposable
         private void Close()
         {
             root.anchoredPosition = restingPosition;
+            playerGridRoot.localScale = gridScale;
+            // The stock closing tween moves these cells through the stationary
+            // hotbar and can freeze midway when the pause menu opens.
+            closedBackpack = new HiddenGraphics(playerGridRoot.gameObject);
+            closedBackpack.SetRaycasts(false);
             if (shiftedContainer && container) container.anchoredPosition = containerPosition;
             shiftedContainer = false;
             if (shadow) shadow.enabled = false;
@@ -632,8 +662,10 @@ internal sealed class ItemInterface : IDisposable
             foreach (var backdrop in oldBackdrops) backdrop.Restore();
             nativeWeight.Restore();
             nativeArmor?.Restore();
+            closedBackpack?.Restore();
             pickup.Dispose();
             if (root) root.anchoredPosition = restingPosition;
+            if (playerGridRoot) playerGridRoot.localScale = gridScale;
             if (armorBadge) armorBadge.anchoredPosition = armorPosition;
             if (shiftedContainer && container) container.anchoredPosition = containerPosition;
             if (shadow)

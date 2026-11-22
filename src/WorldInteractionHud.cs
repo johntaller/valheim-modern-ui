@@ -173,7 +173,7 @@ internal sealed class WorldInteractionHud : IDisposable
     private Image GetMarker(int index)
     {
         if (index < markers.Count) return markers[index];
-        var marker = ItemUi.Image(root, "InteractionRing", art["pickup-ring"]);
+        var marker = ItemUi.Image(root, "InteractionDiamond", art["pickup-ring"]);
         marker.rectTransform.sizeDelta = new Vector2(16, 16);
         markers.Add(marker);
         return marker;

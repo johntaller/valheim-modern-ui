@@ -21,6 +21,7 @@ internal sealed class InterfaceSkin : IDisposable
     private readonly WorldInteractionHud worldInteractions;
     private readonly MapHud mapHud;
     private readonly NotificationHud notifications;
+    private VitalsView vitals;
     private RectTransform pausePlate;
     private bool pauseWasOpen;
     private float nextPrune;
@@ -41,6 +42,8 @@ internal sealed class InterfaceSkin : IDisposable
         mapHud = new MapHud(hud, worldRoot, art);
         notifications = new NotificationHud(worldRoot, art, hud.m_healthText.font);
     }
+
+    internal void Apply(Theme theme) => vitals?.Apply(theme);
 
     internal void PrepareForRender(Theme theme)
     {
@@ -72,7 +75,13 @@ internal sealed class InterfaceSkin : IDisposable
         bool covered = paused || mapOpen || Console.IsVisible() || (TextViewer.instance && TextViewer.instance.IsVisible());
         worldInteractions?.Refresh(player, visible && !covered && !inventoryOpen);
         mapHud?.Refresh(player, visible && !mapOpen && !inventoryOpen);
-        notifications?.Refresh(visible && !inventoryOpen && !mapOpen, theme, covered);
+        notifications?.Refresh(visible && !inventoryOpen && !mapOpen, covered);
+        if (vitals == null && worldRoot && hud.m_crosshair && hud.m_healthBarRoot && hud.m_staminaBar2Root)
+        {
+            var canvas = worldRoot.GetComponentInParent<Canvas>(true);
+            vitals = new VitalsView(hud, canvas, art, theme);
+        }
+        vitals?.Refresh(player, visible && !mapOpen, inventoryOpen, covered);
         if (Time.unscaledTime >= nextPrune)
         {
             nextPrune = Time.unscaledTime + 10;
@@ -91,7 +100,7 @@ internal sealed class InterfaceSkin : IDisposable
             if (!image || !visited.Add(image)) continue;
             string name = image.name;
             string source = image.sprite ? image.sprite.name : "";
-            string role = Role(image, source, name);
+            string role = image == hud.m_crosshair ? "reticle" : Role(source, name, image);
             if (role == null) continue;
             bool keepTint = role == "meter-fill" || name == "dropFocus" || name == "queued" || name == "equiped";
             var control = image.GetComponentInParent<Selectable>();
@@ -119,7 +128,7 @@ internal sealed class InterfaceSkin : IDisposable
         }
     }
 
-    private static string Role(Image image, string sprite, string name)
+    private static string Role(string sprite, string name, Image image)
     {
         if (sprite.StartsWith("woodpanel", StringComparison.Ordinal))
             return sprite.EndsWith("_mask", StringComparison.Ordinal) ? "selected" : "panel";
@@ -241,6 +250,7 @@ internal sealed class InterfaceSkin : IDisposable
 
     public void Dispose()
     {
+        vitals?.Dispose();
         notifications?.Dispose();
         worldInteractions?.Dispose();
         mapHud?.Dispose();
