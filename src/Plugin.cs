@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace ValheimNewUI;
 
-[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.3")]
+[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.4")]
 public sealed class Plugin : BaseUnityPlugin
 {
     private string themePath, lastContent, lastReadError;
@@ -16,6 +16,10 @@ public sealed class Plugin : BaseUnityPlugin
     private VitalsView view;
     private Artwork artwork;
     private InterfaceSkin skin;
+    private SettingsMenu settingsMenu;
+    private SelectionMenus selectionMenus;
+    private Settings failedSettings;
+    private FejdStartup failedStartup;
     private Harmony harmony;
     private bool quitting;
 
@@ -78,8 +82,14 @@ public sealed class Plugin : BaseUnityPlugin
         }
         NativeMessagePatch.SetEnabled(theme.Enabled && harmony != null);
         if (theme.Enabled) view?.Apply(theme);
-        else Release();
+        else
+        {
+            ReleaseMenus();
+            Release();
+        }
         failedHud = null;
+        failedSettings = null;
+        failedStartup = null;
         Logger.LogInfo($"Theme applied (enabled={theme.Enabled}).");
     }
 
@@ -95,6 +105,7 @@ public sealed class Plugin : BaseUnityPlugin
 
     private void BeforeCanvasRender()
     {
+        if (theme.Enabled) PrepareMenus();
         var hud = Hud.instance;
         if (skin != null && (!hud || owner != hud)) Release();
         if (!theme.Enabled || !hud || !hud.m_rootObject || failedHud == hud) return;
@@ -132,6 +143,61 @@ public sealed class Plugin : BaseUnityPlugin
             failedHud = hud;
             Logger.LogError($"Could not prepare interface; restored original graphics. {ex}");
         }
+    }
+
+    private void PrepareMenus()
+    {
+        var settings = Settings.instance;
+        if (settingsMenu != null && settingsMenu.Owner != settings)
+        {
+            settingsMenu.Dispose();
+            settingsMenu = null;
+        }
+        if (settings && settings != failedSettings)
+        {
+            try
+            {
+                settingsMenu ??= new SettingsMenu(settings, artwork);
+                settingsMenu.Refresh();
+            }
+            catch (Exception ex)
+            {
+                settingsMenu?.Dispose();
+                settingsMenu = null;
+                failedSettings = settings;
+                Logger.LogError($"Could not prepare settings: {ex}");
+            }
+        }
+
+        var startup = FejdStartup.instance;
+        if (selectionMenus != null && selectionMenus.Owner != startup)
+        {
+            selectionMenus.Dispose();
+            selectionMenus = null;
+        }
+        if (startup && startup != failedStartup)
+        {
+            try
+            {
+                selectionMenus ??= new SelectionMenus(startup, artwork);
+                selectionMenus.Refresh();
+            }
+            catch (Exception ex)
+            {
+                selectionMenus?.Dispose();
+                selectionMenus = null;
+                failedStartup = startup;
+                Logger.LogError($"Could not prepare character and world selection: {ex}");
+            }
+        }
+    }
+
+    private void ReleaseMenus()
+    {
+        settingsMenu?.Dispose();
+        settingsMenu = null;
+        selectionMenus?.Dispose();
+        selectionMenus = null;
     }
 
     private void Release()
@@ -175,6 +241,7 @@ public sealed class Plugin : BaseUnityPlugin
     {
         NativeMessagePatch.SetEnabled(false);
         Canvas.preWillRenderCanvases -= BeforeCanvasRender;
+        ReleaseMenus();
         Release();
         if (!quitting && harmony != null) EquipmentInventory.Refresh(false);
     }

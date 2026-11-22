@@ -18,6 +18,7 @@ internal sealed class ItemInterface : IDisposable
     private readonly QuickSlot[] quickSlots = new QuickSlot[QuickSlots];
     private readonly Dictionary<Transform, NativeQuickSlot> nativeQuickSlots = new();
     private InventoryPanel panel;
+    private CraftingMenu crafting;
 
     internal ItemInterface(HotkeyBar hotbar, Artwork art, TMP_FontAsset font)
     {
@@ -33,6 +34,10 @@ internal sealed class ItemInterface : IDisposable
     internal void Refresh(InventoryGui gui, Player player)
     {
         if (panel != null && (!gui || panel.Gui != gui)) ReleasePanel();
+        if (crafting != null && (!gui || crafting.Gui != gui)) ReleaseCrafting();
+        if (crafting == null && gui && gui.m_crafting && gui.m_info && gui.m_recipeListRoot)
+            crafting = new CraftingMenu(gui, art, font);
+        crafting?.Refresh(player);
         if (panel == null && gui && gui.m_player && gui.m_playerGrid && gui.m_inventoryRoot && gui.m_weight)
         {
             var canvas = gui.m_inventoryRoot.GetComponentInParent<Canvas>(true);
@@ -96,9 +101,17 @@ internal sealed class ItemInterface : IDisposable
 
     public void Dispose()
     {
+        ReleaseCrafting();
         ReleasePanel();
         foreach (var entry in nativeQuickSlots.Values) entry.Hidden.Restore();
         foreach (var slot in quickSlots) ItemUi.Destroy(slot.Rect);
+    }
+
+    private void ReleaseCrafting()
+    {
+        var previous = crafting;
+        crafting = null;
+        previous?.Dispose();
     }
 
     private sealed class NativeQuickSlot
