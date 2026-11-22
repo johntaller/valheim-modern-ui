@@ -1,0 +1,73 @@
+using System;
+using System.Globalization;
+using Newtonsoft.Json.Linq;
+using UnityEngine;
+
+namespace ValheimNewUI;
+
+internal sealed class Theme
+{
+    internal readonly bool Enabled;
+    internal readonly Vector2 Anchor, Offset;
+    internal readonly float Width, Height, Gap, Padding;
+    internal readonly Color Frame, Background, Health, Stamina, Text;
+    internal readonly string HealthLabel, StaminaLabel;
+
+    internal Theme(string json)
+    {
+        var data = JObject.Parse(json, new JsonLoadSettings { DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error });
+        JToken Field(string key) => data[key] ?? throw new FormatException($"Missing '{key}'.");
+
+        float Number(string key, float min, float max)
+        {
+            var token = Field(key);
+            if (token.Type == JTokenType.Integer || token.Type == JTokenType.Float)
+            {
+                float value = token.Value<float>();
+                if (value >= min && value <= max) return value;
+            }
+            throw new FormatException($"'{key}' must be a number between {min} and {max}.");
+        }
+        string String(string key)
+        {
+            var token = Field(key);
+            if (token.Type == JTokenType.String && !string.IsNullOrWhiteSpace((string)token))
+                return (string)token;
+            throw new FormatException($"'{key}' must be a nonempty string.");
+        }
+        Color Tint(string key)
+        {
+            string hex = String(key);
+            if ((hex.Length != 7 && hex.Length != 9) || hex[0] != '#' ||
+                !uint.TryParse(hex.Substring(1), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out uint rgba))
+                throw new FormatException($"'{key}' must be #RRGGBB or #RRGGBBAA.");
+            if (hex.Length == 7) rgba = (rgba << 8) | 255;
+            return new Color32((byte)(rgba >> 24), (byte)(rgba >> 16), (byte)(rgba >> 8), (byte)rgba);
+        }
+
+        if (Field("enabled").Type != JTokenType.Boolean) throw new FormatException("'enabled' must be true or false.");
+        Enabled = (bool)data["enabled"];
+        Anchor = String("anchor") switch
+        {
+            "bottom-left" => Vector2.zero,
+            "bottom-center" => new Vector2(0.5f, 0),
+            "bottom-right" => Vector2.right,
+            "top-left" => Vector2.up,
+            "top-center" => new Vector2(0.5f, 1),
+            "top-right" => Vector2.one,
+            _ => throw new FormatException("Unknown 'anchor'. Use top/bottom-left/center/right, e.g. bottom-center.")
+        };
+        Offset = new Vector2(Number("offsetX", -8192, 8192), Number("offsetY", -8192, 8192));
+        Width = Number("width", 160, 2048);
+        Height = Number("height", 20, 128);
+        Gap = Number("gap", 0, 128);
+        Padding = Number("padding", 0, (Height - 14) / 2);
+        Frame = Tint("frame");
+        Background = Tint("background");
+        Health = Tint("health");
+        Stamina = Tint("stamina");
+        Text = Tint("text");
+        HealthLabel = String("healthLabel");
+        StaminaLabel = String("staminaLabel");
+    }
+}

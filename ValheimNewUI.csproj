@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <LangVersion>10</LangVersion>
+    <Version>0.0.1</Version>
+    <ManagedDir Condition="'$(ManagedDir)' == ''">$(GameDir)/valheim.app/Contents/Resources/Data/Managed</ManagedDir>
+    <CoreDir>$(GameDir)/BepInEx/core</CoreDir>
+  </PropertyGroup>
+  <Target Name="CheckGameReferences" BeforeTargets="ResolveAssemblyReferences"
+          Condition="!Exists('$(ManagedDir)/assembly_valheim.dll') Or !Exists('$(CoreDir)/BepInEx.dll')">
+    <Error Text="Pass -p:GameDir=&quot;/path/to/Valheim&quot; (folder containing BepInEx). Override -p:ManagedDir if needed." />
+  </Target>
+  <ItemGroup>
+    <Reference Include="$(CoreDir)/0Harmony.dll" Private="false" />
+    <Compile Include="src/*.cs" />
+    <EmbeddedResource Include="theme.json" LogicalName="ValheimNewUI.theme.json" />
+    <EmbeddedResource Include="artwork/*.png" LogicalName="ValheimNewUI.artwork.%(Filename)%(Extension)" />
+    <Reference Include="$(ManagedDir)/UnityEngine.ImageConversionModule.dll;$(ManagedDir)/mscorlib.dll;$(ManagedDir)/netstandard.dll;$(ManagedDir)/System.dll;$(ManagedDir)/System.Core.dll;$(ManagedDir)/Newtonsoft.Json.dll;$(ManagedDir)/UnityEngine.dll;$(ManagedDir)/UnityEngine.CoreModule.dll;$(ManagedDir)/UnityEngine.AnimationModule.dll;$(ManagedDir)/UnityEngine.UIModule.dll;$(ManagedDir)/UnityEngine.UI.dll;$(ManagedDir)/Unity.TextMeshPro.dll;$(ManagedDir)/assembly_valheim.dll;$(ManagedDir)/assembly_utils.dll;$(ManagedDir)/assembly_guiutils.dll;$(CoreDir)/BepInEx.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

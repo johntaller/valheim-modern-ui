@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200" viewBox="0 0 800 200" role="img" aria-label="Developing">
+  <style>
+    .title { font: 700 44px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; letter-spacing: 12px; fill: #F4EFE1; }
+    .dot { fill: #E1BB74; animation: blink 1.5s infinite both; }
+    .d2 { animation-delay: .25s; }
+    .d3 { animation-delay: .5s; }
+    .sweep { animation: sweep 2.4s cubic-bezier(.45, 0, .55, 1) infinite; }
+    .glow { animation: glow 2.4s ease-in-out infinite; }
+    @keyframes blink { 0%, 100% { opacity: .15; } 40% { opacity: 1; } }
+    @keyframes sweep { from { transform: translateX(-140px); } to { transform: translateX(420px); } }
+    @keyframes glow { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .dot, .sweep, .glow { animation: none; } .dot { opacity: 1; } }
+  </style>
+  <defs>
+    <linearGradient id="fill" x1="0" x2="1">
+      <stop offset="0" stop-color="#E1BB74" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#E1BB74"/>
+      <stop offset="1" stop-color="#E1BB74" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="track"><rect x="220" y="140" width="360" height="4" rx="2"/></clipPath>
+  </defs>
+  <rect x="1" y="1" width="798" height="198" rx="14" fill="#211F20" stroke="#99856D" stroke-opacity=".7" stroke-width="2"/>
+  <rect x="9" y="9" width="782" height="182" rx="9" fill="none" stroke="#99856D" stroke-opacity=".22"/>
+  <text class="title" x="406" y="112" text-anchor="middle">DEVELOPING<tspan class="dot">.</tspan><tspan class="dot d2">.</tspan><tspan class="dot d3">.</tspan></text>
+  <rect x="220" y="140" width="360" height="4" rx="2" fill="#0D1315"/>
+  <g clip-path="url(#track)">
+    <rect class="sweep glow" x="220" y="140" width="140" height="4" fill="url(#fill)"/>
+  </g>
+</svg>
