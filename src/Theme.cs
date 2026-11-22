@@ -8,10 +8,8 @@ namespace ValheimNewUI;
 internal sealed class Theme
 {
     internal readonly bool Enabled;
-    internal readonly Vector2 Anchor, Offset;
-    internal readonly float Width, Height, Padding, HealthTop;
+    internal readonly float Padding;
     internal readonly Color Frame, Background, Health, Stamina, Text;
-    internal readonly string HealthLabel;
 
     internal Theme(string json)
     {
@@ -47,27 +45,11 @@ internal sealed class Theme
 
         if (Field("enabled").Type != JTokenType.Boolean) throw new FormatException("'enabled' must be true or false.");
         Enabled = (bool)data["enabled"];
-        Anchor = String("anchor") switch
-        {
-            "bottom-left" => Vector2.zero,
-            "bottom-center" => new Vector2(0.5f, 0),
-            "bottom-right" => Vector2.right,
-            "top-left" => Vector2.up,
-            "top-center" => new Vector2(0.5f, 1),
-            "top-right" => Vector2.one,
-            _ => throw new FormatException("Unknown 'anchor'. Use top/bottom-left/center/right, e.g. bottom-center.")
-        };
-        Offset = new Vector2(Number("offsetX", -8192, 8192), Number("offsetY", -8192, 8192));
-        Width = Number("width", 160, 2048);
-        Height = Number("height", 20, 128);
-        // Preserve the health position in themes that laid it out above the old stamina bar.
-        HealthTop = 2 * Height + Number("gap", 0, 128);
-        Padding = Number("padding", 0, (Height - 14) / 2);
+        Padding = Number("padding", 0, 57);
         Frame = Tint("frame");
         Background = Tint("background");
         Health = Tint("health");
         Stamina = Tint("stamina");
         Text = Tint("text");
-        HealthLabel = String("healthLabel");
     }
 }

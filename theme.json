@@ -1,16 +1,9 @@
 {
   "enabled": true,
-  "anchor": "bottom-center",
-  "offsetX": 0,
-  "offsetY": 48,
-  "width": 270,
-  "height": 27,
-  "gap": 4,
   "padding": 2,
   "frame": "#99856D",
   "background": "#211F20F0",
   "health": "#943C40",
   "stamina": "#836227",
-  "text": "#FFF5E0",
-  "healthLabel": "Здоровье"
+  "text": "#FFF5E0"
 }

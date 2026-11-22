@@ -7,35 +7,83 @@ namespace ValheimNewUI;
 
 internal sealed class VitalsView
 {
-    private readonly RectTransform root;
-    private readonly Meter health;
+    internal const float Clearance = 166;
+    private const float Height = 132;
+    private readonly RectTransform root, aim;
+    private readonly Image healthFrame, healthTrack, healthFill;
+    private readonly TextMeshProUGUI healthValue, staminaValue, guardianName;
     private readonly Image reticle;
     private readonly StaminaArcs stamina;
-    private readonly HashSet<Graphic> hidden = new();
+    private readonly FoodSlot[] foods = new FoodSlot[3];
+    private readonly PowerSlot rested, guardian;
+    private readonly Button guardianTouch;
+    private readonly StatusEffectHud effects;
+    private readonly List<HiddenGraphics> hidden = new();
+    private readonly HashSet<Graphic> hiddenText = new();
+    private Sprite emptyFood, inactiveRested;
+    private int lastHealth = -1, lastMaxHealth = -1, lastStamina = -1, lastMaxStamina = -1;
 
-    internal VitalsView(Hud hud, Canvas canvas, Theme theme)
+    internal VitalsView(Hud hud, Canvas canvas, Artwork art, Theme theme)
     {
-        root = Node("ValheimNewUI", canvas.rootCanvas.transform);
+        var canvasRect = (RectTransform)canvas.rootCanvas.transform;
+        var font = HudStyle.DisplayFont(hud.m_healthText.font);
+        root = ItemUi.Rect(canvasRect, "NewUI_Vitals");
+        root.anchorMin = root.anchorMax = root.pivot = Vector2.zero;
+        root.anchoredPosition = new Vector2(22, 18);
+        root.sizeDelta = new Vector2(440, Height);
+        root.SetAsFirstSibling();
         root.gameObject.SetActive(false);
+        aim = ItemUi.Rect(canvasRect, "NewUI_AimVitals");
+        HudStyle.Center(aim, 0, 0, 60, 60);
+        aim.SetAsFirstSibling();
+        aim.gameObject.SetActive(false);
+        reticle = hud.m_crosshair;
         try
         {
-            // Keep the game's menus, fade and loading screen above the meters.
-            root.SetAsFirstSibling();
-            health = new Meter(root, hud.m_healthText);
-            reticle = hud.m_crosshair;
-            var arcs = ItemUi.Rect(reticle.rectTransform, "NewUI_StaminaArcs");
-            arcs.gameObject.SetActive(false);
-            arcs.anchorMin = arcs.anchorMax = arcs.pivot = new Vector2(0.5f, 0.5f);
-            arcs.anchoredPosition = Vector2.zero;
-            arcs.sizeDelta = new Vector2(60, 60);
-            stamina = arcs.gameObject.AddComponent<StaminaArcs>();
+            var shade = HudStyle.Shadow(root, art, 0.86f);
+            ItemUi.TopLeft(shade.rectTransform, -31, -55, 290, 239);
+            healthFrame = ItemUi.Image(root, "HealthFrame", art["slot"]);
+            ItemUi.TopLeft(healthFrame.rectTransform, 20, 1, 20, 106);
+            healthTrack = ItemUi.Image(healthFrame.transform, "Track", art["meter-fill"]);
+            healthFill = ItemUi.Image(healthTrack.transform, "Fill", art["meter-fill"]);
+            healthFill.type = Image.Type.Filled;
+            healthFill.fillMethod = Image.FillMethod.Vertical;
+            ItemUi.Stretch(healthFill.rectTransform, Vector2.zero, Vector2.zero);
+            var cap = ItemUi.Image(root, "HealthCap", art["reticle"]);
+            cap.color = ItemUi.Accent;
+            ItemUi.TopLeft(cap.rectTransform, 22, -8, 16, 16);
+            healthValue = Number(root, "Health", font, 18, theme.Text);
+            ItemUi.TopLeft(healthValue.rectTransform, -11, 108, 82, 24);
+            for (int i = 0; i < foods.Length; i++) foods[i] = new FoodSlot(root, art, font, 70 + 47 * i);
+
+            rested = new PowerSlot(root, art, font, "Rested", 0);
+            guardian = new PowerSlot(root, art, font, "GuardianPower", 59, 17);
+            guardianName = Number(root, "GuardianName", font, 13, ItemUi.Ink);
+            guardianName.overflowMode = TextOverflowModes.Ellipsis;
+            ItemUi.TopLeft(guardianName.rectTransform, 198, 101, 99, 16);
+            guardianTouch = guardian.Icon.gameObject.AddComponent<Button>();
+            guardianTouch.transition = Selectable.Transition.None;
+            guardianTouch.navigation = new Navigation { mode = Navigation.Mode.None };
+            guardianTouch.onClick.AddListener(() =>
+            {
+                if (ZInput.HasDoubleTapped() && Player.m_localPlayer) Player.m_localPlayer.StartGuardianPower();
+            });
+            effects = new StatusEffectHud(hud, root, art);
+            stamina = aim.gameObject.AddComponent<StaminaArcs>();
             stamina.raycastTarget = false;
+            staminaCounterShade = HudStyle.Shadow(aim, art, 0.85f);
+            HudStyle.Center(staminaCounterShade.rectTransform, 0, -40, 140, 68);
+            staminaValue = Number(aim, "Stamina", font, 18, theme.Text);
+            HudStyle.Center(staminaValue.rectTransform, 0, -40, 122, 22);
+
             Apply(theme);
-            HideBar(hud.m_healthBarRoot);
-            HideBar(hud.m_staminaBar2Root);
-            HideGraphic(hud.m_healthText);
-            HideGraphic(hud.m_staminaText);
-            root.gameObject.SetActive(true);
+            Hide(hud.m_healthPanel);
+            if (!hud.m_healthPanel || !hud.m_healthBarRoot.IsChildOf(hud.m_healthPanel)) Hide(hud.m_healthBarRoot);
+            Hide(hud.m_staminaBar2Root);
+            Hide(hud.m_foodBarRoot);
+            Hide(hud.m_gpRoot);
+            HideText(hud.m_healthText);
+            HideText(hud.m_staminaText);
         }
         catch
         {
@@ -44,139 +92,154 @@ internal sealed class VitalsView
         }
     }
 
+    private readonly Image staminaCounterShade;
+
     internal void Apply(Theme theme)
     {
-        root.anchorMin = root.anchorMax = root.pivot = theme.Anchor;
-        root.anchoredPosition = theme.Offset;
-        root.sizeDelta = new Vector2(theme.Width, theme.HealthTop);
-        health.Style(theme);
+        float inset = Mathf.Clamp(theme.Padding + 1, 2, 7);
+        ItemUi.Stretch(healthTrack.rectTransform, Vector2.one * inset, Vector2.one * -inset);
+        healthFrame.color = theme.Frame;
+        healthTrack.color = theme.Background;
+        healthFill.color = Color.Lerp(theme.Health, ItemUi.Warning, 0.44f);
+        healthValue.color = staminaValue.color = theme.Text;
         stamina.Style(theme);
     }
 
-    internal void Refresh(Player player, bool visible)
+    internal void Refresh(Player player, bool visible, bool inventoryOpen, bool covered)
     {
         if (root.gameObject.activeSelf != visible) root.gameObject.SetActive(visible);
-        if (visible) health.Value(player.GetHealth(), player.GetMaxHealth());
+        if (visible)
+        {
+            float max = player.GetMaxHealth();
+            float current = player.GetHealth();
+            healthFill.fillAmount = max > 0 ? Mathf.Clamp01(current / max) : 0;
+            UpdateNumber(healthValue, current, max, ref lastHealth, ref lastMaxHealth);
+            var food = player.GetFoods();
+            if (!emptyFood && ObjectDB.instance)
+            {
+                var meat = ObjectDB.instance.GetItemPrefab("RawMeat");
+                if (meat && meat.TryGetComponent<ItemDrop>(out var drop)) emptyFood = drop.m_itemData.GetIcon();
+            }
+            for (int i = 0; i < foods.Length; i++) foods[i].Refresh(i < food.Count ? food[i] : null, emptyFood);
 
-        bool showStamina = visible && reticle && reticle.isActiveAndEnabled && !Menu.IsVisible() && !Console.IsVisible();
-        if (stamina.gameObject.activeSelf != showStamina) stamina.gameObject.SetActive(showStamina);
-        if (showStamina) stamina.Value(player.GetStamina(), player.GetMaxStamina());
+            var rest = player.GetSEMan().GetStatusEffect(SEMan.s_statusEffectRested);
+            if (!inactiveRested && ObjectDB.instance)
+                inactiveRested = ObjectDB.instance.GetStatusEffect(SEMan.s_statusEffectRested)?.m_icon;
+            rested.Refresh(rest ? rest.m_icon : inactiveRested, rest, rest ? rest.GetIconText() : "");
+            player.GetGuardianPowerHUD(out var power, out float cooldown);
+            string name = power ? Localization.instance.Localize(power.m_name) : "";
+            if (guardianName.text != name) guardianName.text = name;
+            guardian.Refresh(power ? power.m_icon : null, power && cooldown <= 0,
+                !power ? "" : cooldown > 0 ? StatusEffect.GetTimeString(cooldown, false, false)
+                    : Localization.instance.Localize("$hud_ready"));
+            bool touch = power && !inventoryOpen && !covered && ZInput.IsTouchActive();
+            guardian.Icon.raycastTarget = guardianTouch.enabled = touch;
+            effects.Refresh(player, inventoryOpen && !covered);
+        }
+
+        float maximum = visible ? player.GetMaxStamina() : 0;
+        float amount = visible ? player.GetStamina() : 0;
+        bool show = visible && !covered && (inventoryOpen || reticle && reticle.isActiveAndEnabled && amount < maximum);
+        if (aim.gameObject.activeSelf != show) aim.gameObject.SetActive(show);
+        if (!show) return;
+        if (reticle) aim.position = reticle.rectTransform.TransformPoint(reticle.rectTransform.rect.center);
+        stamina.Value(amount, maximum);
+        staminaValue.enabled = staminaCounterShade.enabled = inventoryOpen;
+        if (inventoryOpen) UpdateNumber(staminaValue, amount, maximum, ref lastStamina, ref lastMaxStamina);
     }
 
-    private void HideBar(RectTransform bar)
+    private void Hide(RectTransform source)
     {
-        foreach (var graphic in bar.GetComponentsInChildren<Graphic>(true)) HideGraphic(graphic);
+        if (!source) return;
+        var state = new HiddenGraphics(source.gameObject);
+        state.SetRaycasts(false);
+        hidden.Add(state);
     }
 
-    private void HideGraphic(Graphic graphic)
+    private void HideText(Graphic text)
     {
-        if (!graphic || !graphic.enabled || !hidden.Add(graphic)) return;
-        graphic.enabled = false;
+        if (text && text.enabled && hiddenText.Add(text)) text.enabled = false;
     }
 
     internal void Dispose()
     {
-        foreach (var graphic in hidden)
-            if (graphic) graphic.enabled = true;
-        hidden.Clear();
-        ItemUi.Destroy(stamina);
+        effects?.Dispose();
+        foreach (var state in hidden) state.Restore();
+        foreach (var text in hiddenText)
+            if (text) text.enabled = true;
+        ItemUi.Destroy(aim);
         ItemUi.Destroy(root);
     }
 
-    private static RectTransform Node(string name, Transform parent)
+    private static TextMeshProUGUI Number(Transform parent, string name, TMP_FontAsset font, float size, Color color)
     {
-        var rect = (RectTransform)new GameObject(name, typeof(RectTransform)).transform;
-        rect.SetParent(parent, false);
-        return rect;
+        var text = ItemUi.Text(parent, name, font, size, color);
+        text.alignment = TextAlignmentOptions.Center;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        return text;
     }
 
-    private static Image Layer(string name, Transform parent)
+    private static void UpdateNumber(TMP_Text label, float current, float max, ref int cachedCurrent, ref int cachedMax)
     {
-        var image = Node(name, parent).gameObject.AddComponent<Image>();
-        image.raycastTarget = false;
-        return image;
+        int capacity = Mathf.Max(0, Mathf.CeilToInt(max));
+        int amount = Mathf.Clamp(Mathf.CeilToInt(current), 0, capacity);
+        if (amount == cachedCurrent && capacity == cachedMax) return;
+        label.SetText("{0} / {1}", amount, capacity);
+        cachedCurrent = amount;
+        cachedMax = capacity;
     }
 
-    private static void Stretch(RectTransform rect, Vector2 min, Vector2 max, Vector2 from, Vector2 to)
+    private sealed class FoodSlot
     {
-        rect.anchorMin = min;
-        rect.anchorMax = max;
-        rect.offsetMin = from;
-        rect.offsetMax = to;
+        private readonly Image icon;
+        private readonly TextMeshProUGUI timer;
+        private int lastSecond = -1;
+
+        internal FoodSlot(Transform parent, Artwork art, TMP_FontAsset font, float x)
+        {
+            var face = ItemUi.Image(parent, "FoodSlot", art["slot"]);
+            ItemUi.TopLeft(face.rectTransform, x, 48, 39, 39);
+            icon = ItemUi.Image(face.transform, "FoodIcon");
+            icon.preserveAspect = true;
+            ItemUi.Stretch(icon.rectTransform, Vector2.one * 3, Vector2.one * -3);
+            timer = Number(parent, "FoodTime", font, 14, ItemUi.Ink);
+            ItemUi.TopLeft(timer.rectTransform, x - 5, 89, 49, 18);
+        }
+
+        internal void Refresh(Player.Food food, Sprite empty)
+        {
+            icon.sprite = food != null ? food.m_item.GetIcon() : empty;
+            icon.enabled = icon.sprite;
+            icon.color = food != null ? Color.white : new Color32(103, 93, 82, 165);
+            int second = food != null ? Mathf.CeilToInt(food.m_time) : -1;
+            if (second == lastSecond) return;
+            lastSecond = second;
+            timer.text = second >= 0 ? StatusEffect.GetTimeString(second, false, true) : "";
+        }
     }
 
-    private sealed class Meter
+    private sealed class PowerSlot
     {
-        private readonly Image frame, track, fill, markA, markB;
-        private readonly RectTransform icon;
-        private readonly TextMeshProUGUI label, value;
-        private int lastCurrent = -1, lastMax = -1;
-        private float lastRatio = -1;
+        internal readonly Image Icon;
+        private readonly TextMeshProUGUI timer;
 
-        internal Meter(Transform parent, TMP_Text template)
+        internal PowerSlot(Transform parent, Artwork art, TMP_FontAsset font, string name, float y, float timerOffset = 0)
         {
-            frame = Layer("HealthFrame", parent);
-            track = Layer("Background", frame.transform);
-            fill = Layer("Fill", track.transform);
-            Stretch(fill.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
-            icon = Node("Icon", frame.transform);
-            icon.anchorMin = icon.anchorMax = new Vector2(0, 0.5f);
-            icon.sizeDelta = new Vector2(14, 14);
-            icon.anchoredPosition = new Vector2(16, 0);
-            markA = Layer("StrokeA", icon);
-            markB = Layer("StrokeB", icon);
-            markA.rectTransform.sizeDelta = new Vector2(12, 3);
-            markB.rectTransform.sizeDelta = new Vector2(3, 12);
-
-            label = MakeText("Label", template, TextAlignmentOptions.MidlineLeft);
-            value = MakeText("Value", template, TextAlignmentOptions.MidlineRight);
-            Stretch(label.rectTransform, Vector2.zero, new Vector2(0.60f, 1), new Vector2(29, 1), new Vector2(-2, -1));
-            Stretch(value.rectTransform, new Vector2(0.60f, 0), Vector2.one, new Vector2(0, 1), new Vector2(-9, -1));
+            var face = ItemUi.Image(parent, name, art["slot"]);
+            ItemUi.TopLeft(face.rectTransform, 226, y, 42, 42);
+            Icon = ItemUi.Image(face.transform, "Icon");
+            Icon.preserveAspect = true;
+            ItemUi.Stretch(Icon.rectTransform, Vector2.one * 3, Vector2.one * -3);
+            timer = Number(parent, "Remaining", font, 14, ItemUi.Ink);
+            ItemUi.TopLeft(timer.rectTransform, 203, y + 43 + timerOffset, 88, 18);
         }
 
-        private TextMeshProUGUI MakeText(string name, TMP_Text template, TextAlignmentOptions alignment)
+        internal void Refresh(Sprite icon, bool active, string time)
         {
-            var text = Node(name, frame.transform).gameObject.AddComponent<TextMeshProUGUI>();
-            text.font = template.font;
-            text.raycastTarget = false;
-            text.richText = false;
-            text.enableAutoSizing = true;
-            text.fontSizeMin = 9;
-            text.alignment = alignment;
-            text.overflowMode = TextOverflowModes.Ellipsis;
-            return text;
-        }
-
-        internal void Style(Theme theme)
-        {
-            var rect = frame.rectTransform;
-            rect.anchorMin = rect.anchorMax = rect.pivot = Vector2.zero;
-            rect.sizeDelta = new Vector2(theme.Width, theme.Height);
-            rect.anchoredPosition = new Vector2(0, theme.HealthTop - theme.Height);
-            var inset = Vector2.one * theme.Padding;
-            Stretch(track.rectTransform, Vector2.zero, Vector2.one, inset, -inset);
-            frame.color = theme.Frame;
-            track.color = theme.Background;
-            fill.color = theme.Health;
-            label.color = value.color = markA.color = markB.color = theme.Text;
-            label.fontSizeMax = value.fontSizeMax = Mathf.Min(theme.Height - 5, 22);
-            label.text = theme.HealthLabel;
-        }
-
-        internal void Value(float current, float max)
-        {
-            float ratio = max > 0 ? Mathf.Clamp01(current / max) : 0;
-            if (ratio != lastRatio)
-            {
-                fill.rectTransform.anchorMax = new Vector2(ratio, 1);
-                lastRatio = ratio;
-            }
-            int capacity = Mathf.Max(0, Mathf.CeilToInt(max));
-            int amount = Mathf.Clamp(Mathf.CeilToInt(current), 0, capacity);
-            if (amount == lastCurrent && capacity == lastMax) return;
-            value.SetText("{0} / {1}", amount, capacity);
-            lastCurrent = amount;
-            lastMax = capacity;
+            Icon.sprite = icon;
+            Icon.enabled = icon;
+            Icon.color = active ? Color.white : new Color32(103, 93, 82, 180);
+            if (timer.text != time) timer.text = time;
         }
     }
 }

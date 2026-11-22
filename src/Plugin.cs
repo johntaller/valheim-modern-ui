@@ -6,14 +6,13 @@ using UnityEngine;
 
 namespace ValheimNewUI;
 
-[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.7")]
+[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.8")]
 public sealed class Plugin : BaseUnityPlugin
 {
     private string themePath, lastContent, lastReadError;
     private Theme theme;
     private float nextRead;
     private Hud owner, failedHud;
-    private VitalsView view;
     private Artwork artwork;
     private InterfaceSkin skin;
     private SettingsMenu settingsMenu;
@@ -81,7 +80,7 @@ public sealed class Plugin : BaseUnityPlugin
             return;
         }
         NativeMessagePatch.SetEnabled(theme.Enabled && harmony != null);
-        if (theme.Enabled) view?.Apply(theme);
+        if (theme.Enabled) skin?.Apply(theme);
         else
         {
             ReleaseMenus();
@@ -116,25 +115,9 @@ public sealed class Plugin : BaseUnityPlugin
                 skin = new InterfaceSkin(hud, artwork);
                 owner = hud;
                 NativeMessagePatch.SetEnabled(harmony != null);
+                Logger.LogInfo("HUD attached.");
             }
             skin.PrepareForRender(theme);
-
-            var player = Player.m_localPlayer;
-            if (!player || player.IsDead())
-            {
-                ReleaseVitals();
-                return;
-            }
-            if (view == null)
-            {
-                if (!hud.m_crosshair || !hud.m_healthText || !hud.m_healthBarRoot || !hud.m_staminaBar2Root) return;
-                var canvas = hud.m_healthText.GetComponentInParent<Canvas>(true);
-                if (!canvas) return;
-                view = new VitalsView(hud, canvas, theme);
-                Logger.LogInfo($"Vitals attached. Health {player.GetHealth():0.#}/{player.GetMaxHealth():0.#}, stamina {player.GetStamina():0.#}/{player.GetMaxStamina():0.#}.");
-            }
-            bool bagOrMap = InventoryGui.IsVisible() || (Minimap.instance && Minimap.instance.m_largeRoot.activeInHierarchy);
-            view.Refresh(player, !bagOrMap && hud.isActiveAndEnabled && hud.m_rootObject.activeInHierarchy && hud.IsVisible());
         }
         catch (Exception ex)
         {
@@ -214,17 +197,6 @@ public sealed class Plugin : BaseUnityPlugin
         {
             Logger.LogError($"Could not release interface: {ex}");
         }
-        finally
-        {
-            ReleaseVitals();
-        }
-    }
-
-    private void ReleaseVitals()
-    {
-        var previousView = view;
-        view = null;
-        previousView?.Dispose();
     }
 
     private void OnDestroy()

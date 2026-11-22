@@ -84,21 +84,7 @@ internal sealed class EquipmentPanel
         scroll.movementType = ScrollRect.MovementType.Clamped;
         scroll.scrollSensitivity = 25;
 
-        var rail = ItemUi.Image(modifiersPanel, "ModifiersScrollbar", art["slot"]);
-        rail.raycastTarget = true;
-        var slider = ItemUi.Rect(rail.transform, "SlidingArea");
-        ItemUi.Stretch(slider, Vector2.zero, Vector2.zero);
-        var handle = ItemUi.Image(slider, "Handle", art["meter-fill"]);
-        handle.color = ItemUi.Accent;
-        handle.raycastTarget = true;
-        ItemUi.Stretch(handle.rectTransform, Vector2.zero, Vector2.zero);
-        modifiersScrollbar = rail.gameObject.AddComponent<Scrollbar>();
-        modifiersScrollbar.handleRect = handle.rectTransform;
-        modifiersScrollbar.targetGraphic = handle;
-        modifiersScrollbar.direction = Scrollbar.Direction.BottomToTop;
-        var navigation = modifiersScrollbar.navigation;
-        navigation.mode = Navigation.Mode.None;
-        modifiersScrollbar.navigation = navigation;
+        modifiersScrollbar = HudStyle.Scrollbar(modifiersPanel, art, "ModifiersScrollbar");
         scroll.verticalScrollbar = modifiersScrollbar;
         modifiersPanel.gameObject.SetActive(false);
         Rect.gameObject.SetActive(false);
