@@ -66,7 +66,7 @@ internal sealed class NotificationHud : IDisposable
         {
             float barCenter = (theme.Anchor.x - 0.5f) * root.rect.width + theme.Offset.x;
             if (Mathf.Abs(barCenter) < (theme.Width + 470) * 0.5f)
-                bottom = Mathf.Max(bottom, theme.Offset.y + 2 * theme.Height + theme.Gap + 18);
+                bottom = Mathf.Max(bottom, theme.Offset.y + theme.HealthTop + 18);
         }
         int shown = 0;
         if (!covered)

@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace ValheimNewUI;
 
-[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.5")]
+[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.6")]
 public sealed class Plugin : BaseUnityPlugin
 {
     private string themePath, lastContent, lastReadError;
@@ -127,7 +127,7 @@ public sealed class Plugin : BaseUnityPlugin
             }
             if (view == null)
             {
-                if (!hud.m_healthText || !hud.m_staminaText || !hud.m_healthBarRoot || !hud.m_staminaBar2Root) return;
+                if (!hud.m_crosshair || !hud.m_healthText || !hud.m_healthBarRoot || !hud.m_staminaBar2Root) return;
                 var canvas = hud.m_healthText.GetComponentInParent<Canvas>(true);
                 if (!canvas) return;
                 view = new VitalsView(hud, canvas, theme);
