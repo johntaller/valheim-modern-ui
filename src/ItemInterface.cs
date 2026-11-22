@@ -119,6 +119,7 @@ internal sealed class ItemInterface : IDisposable
         private readonly Image icon, selection, equipped;
         private readonly DurabilityEdge edge;
         private readonly TextMeshProUGUI binding, amount, cheated;
+        private readonly ItemQualityBadge quality;
         private ItemDrop.ItemData lastItem;
         private int lastStack = -1;
 
@@ -153,7 +154,8 @@ internal sealed class ItemInterface : IDisposable
             amount.fontStyle = FontStyles.Bold;
             amount.alignment = TextAlignmentOptions.Bottom;
             ItemUi.Stretch(amount.rectTransform, new Vector2(2, 5), new Vector2(-2, 0));
-            cheated = MakeCheatBadge(Rect, font, true);
+            cheated = MakeCheatBadge(Rect, font, hotbar: true);
+            quality = new ItemQualityBadge(Rect, art, font);
             edge = MakeDurability(Rect);
         }
 
@@ -176,6 +178,7 @@ internal sealed class ItemInterface : IDisposable
             equipped.enabled = item != null && (item.m_equipped || player.IsEquipActionQueued(item));
             SetFocused(target && target.m_selected && target.m_selected.activeSelf);
             cheated.enabled = item?.m_cheated == true;
+            quality.Refresh(item);
             amount.enabled = item != null && item.m_shared.m_maxStackSize > 1;
             if (amount.enabled && lastStack != item.m_stack)
             {
@@ -188,13 +191,13 @@ internal sealed class ItemInterface : IDisposable
         internal void SetFocused(bool value) => selection.enabled = value;
     }
 
-    private static TextMeshProUGUI MakeCheatBadge(RectTransform slot, TMP_FontAsset font, bool right)
+    private static TextMeshProUGUI MakeCheatBadge(RectTransform slot, TMP_FontAsset font, bool hotbar)
     {
         var badge = ItemUi.Text(slot, "CheatedItem", font, 20, new Color32(255, 104, 101, 255));
         badge.fontStyle = FontStyles.Bold;
-        badge.alignment = right ? TextAlignmentOptions.TopRight : TextAlignmentOptions.TopLeft;
+        badge.alignment = hotbar ? TextAlignmentOptions.BottomLeft : TextAlignmentOptions.TopLeft;
         badge.text = "!";
-        ItemUi.Stretch(badge.rectTransform, new Vector2(6, 0), new Vector2(-6, -3));
+        ItemUi.Stretch(badge.rectTransform, new Vector2(6, 5), new Vector2(-6, -3));
         return badge;
     }
 
@@ -639,9 +642,11 @@ internal sealed class ItemInterface : IDisposable
     {
         internal readonly InventoryElement Element;
         private readonly HiddenGraphics hidden, nativeDurability;
+        private readonly ItemQualityBadge quality;
+        private readonly bool iconPreservedAspect;
         private readonly UIItemDropTarget dropTarget;
         private readonly RectTransform rect, originalParent;
-        private readonly Vector2 originalAnchoredPosition, originalSize, originalAnchorMin, originalAnchorMax;
+        private readonly Vector2 originalAnchoredPosition, originalSize, originalAnchorMin, originalAnchorMax, originalPivot;
         private readonly int originalOrder;
         private readonly Vector3 originalScale;
         private readonly Image nativeFace;
@@ -678,6 +683,7 @@ internal sealed class ItemInterface : IDisposable
                 originalOrder = rect.GetSiblingIndex();
                 originalAnchoredPosition = rect.anchoredPosition;
                 originalSize = rect.sizeDelta;
+                originalPivot = rect.pivot;
                 originalAnchorMin = rect.anchorMin;
                 originalAnchorMax = rect.anchorMax;
                 originalScale = rect.localScale;
@@ -713,14 +719,21 @@ internal sealed class ItemInterface : IDisposable
                 ItemUi.Stretch(fallbackFace.rectTransform, Vector2.zero, Vector2.zero);
                 fallbackFace.rectTransform.SetAsFirstSibling();
             }
+            if (element.m_icon)
+            {
+                iconPreservedAspect = element.m_icon.preserveAspect;
+                element.m_icon.preserveAspect = true;
+            }
             if (element.m_durability) nativeDurability = new HiddenGraphics(element.m_durability.gameObject);
-            cheated = MakeCheatBadge(rect, font, false);
+            cheated = MakeCheatBadge(rect, font, hotbar: false);
+            quality = new ItemQualityBadge(rect, art, font, element.m_quality);
             edge = MakeDurability(rect);
         }
 
         internal void Refresh(ItemDrop.ItemData item)
         {
             cheated.enabled = item?.m_cheated == true;
+            quality.Refresh(item);
             edge.SetItem(item);
         }
 
@@ -738,6 +751,7 @@ internal sealed class ItemInterface : IDisposable
                 rect.SetSiblingIndex(originalOrder);
                 rect.anchorMin = originalAnchorMin;
                 rect.anchorMax = originalAnchorMax;
+                rect.pivot = originalPivot;
                 rect.anchoredPosition = originalAnchoredPosition;
                 rect.sizeDelta = originalSize;
                 rect.localScale = originalScale;
@@ -749,7 +763,9 @@ internal sealed class ItemInterface : IDisposable
                 nativeFace.type = originalFaceType;
                 nativeFace.color = originalFaceColor;
             }
+            if (quality != null && Element.m_icon) Element.m_icon.preserveAspect = iconPreservedAspect;
             nativeDurability?.Restore();
+            quality?.Dispose();
             ItemUi.Destroy(fallbackFace);
             ItemUi.Destroy(cheated);
             ItemUi.Destroy(edge);
