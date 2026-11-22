@@ -17,6 +17,10 @@ internal sealed class InterfaceSkin : IDisposable
     private readonly List<GameObject> layers = new();
     private readonly Vector3[] corners = new Vector3[4];
     private readonly ItemInterface items;
+    private readonly RectTransform worldRoot;
+    private readonly WorldPickupHud pickups;
+    private readonly MapHud mapHud;
+    private readonly NotificationHud notifications;
     private RectTransform pausePlate;
     private bool pauseWasOpen;
     private float nextPrune;
@@ -28,9 +32,17 @@ internal sealed class InterfaceSkin : IDisposable
         var hotbar = hud.m_rootObject.GetComponentInChildren<HotkeyBar>(true);
         if (hotbar && hotbar.m_elementPrefab && hud.m_healthText)
             items = new ItemInterface(hotbar, art, hud.m_healthText.font);
+
+        var canvas = hud.m_healthText ? hud.m_healthText.GetComponentInParent<Canvas>(true) : null;
+        if (!canvas) return;
+        worldRoot = ItemUi.Rect(canvas.transform, "NewUI_WorldHud");
+        ItemUi.Stretch(worldRoot, Vector2.zero, Vector2.zero);
+        pickups = new WorldPickupHud(hud, canvas, worldRoot, art);
+        mapHud = new MapHud(hud, worldRoot, art);
+        notifications = new NotificationHud(worldRoot, art, hud.m_healthText.font);
     }
 
-    internal void PrepareForRender()
+    internal void PrepareForRender(Theme theme)
     {
         // The game can create more inventory cells and recipes in the frames after Show().
         // Visit active objects before uGUI rebuilds their geometry, including on those frames.
@@ -42,7 +54,6 @@ internal sealed class InterfaceSkin : IDisposable
         if (map)
         {
             if (map.m_largeRoot) Scan(map.m_largeRoot.transform);
-            if (map.m_smallRoot) Scan(map.m_smallRoot.transform);
         }
         var pause = Menu.instance;
         bool paused = pause && pause.m_root && pause.m_root.gameObject.activeInHierarchy;
@@ -53,15 +64,15 @@ internal sealed class InterfaceSkin : IDisposable
         }
         pauseWasOpen = paused;
 
-        items?.Refresh(inventory, Player.m_localPlayer);
-        if (hud.m_statusEffectListRoot)
-        {
-            foreach (Transform effect in hud.m_statusEffectListRoot)
-            {
-                if (!effect.gameObject.activeInHierarchy || effect == hud.m_statusEffectTemplate) continue;
-                if (!effect.Find("NewUI_StatusSlot")) Backdrop(effect, "NewUI_StatusSlot", "slot", 1);
-            }
-        }
+        var player = Player.m_localPlayer;
+        items?.Refresh(inventory, player);
+        bool inventoryOpen = InventoryGui.IsVisible();
+        bool mapOpen = Minimap.IsOpen();
+        bool visible = player && !player.IsDead() && hud.isActiveAndEnabled && hud.m_rootObject.activeInHierarchy && hud.IsVisible();
+        bool covered = paused || mapOpen || Console.IsVisible() || (TextViewer.instance && TextViewer.instance.IsVisible());
+        pickups?.Refresh(player, visible && !covered && !inventoryOpen);
+        mapHud?.Refresh(player, visible && !mapOpen && !inventoryOpen);
+        notifications?.Refresh(visible && !inventoryOpen && !mapOpen, theme, covered);
         if (Time.unscaledTime >= nextPrune)
         {
             nextPrune = Time.unscaledTime + 10;
@@ -230,6 +241,10 @@ internal sealed class InterfaceSkin : IDisposable
 
     public void Dispose()
     {
+        notifications?.Dispose();
+        pickups?.Dispose();
+        mapHud?.Dispose();
+        ItemUi.Destroy(worldRoot);
         items?.Dispose();
         foreach (var original in originals) original.Restore();
         foreach (var layer in layers)
