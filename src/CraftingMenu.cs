@@ -79,7 +79,7 @@ internal sealed class CraftingMenu : IDisposable
         pages = new InlinePage[6];
         pages[(int)Page.Skills] = new InlinePage(gui.m_skillsDialog.transform, body, style, PageTitle(Page.Skills));
         pages[(int)Page.Lore] = new InlinePage(gui.m_textsDialog.transform, body, style, PageTitle(Page.Lore),
-            MenuStyle.Translate("Texts", "Тексты"));
+            MenuStyle.Translate("Valheim compendium", "Компендиум Valheim"), MenuStyle.Translate("Texts", "Тексты"));
         pages[(int)Page.Trophies] = new InlinePage(gui.m_trophiesPanel.transform, body, style, PageTitle(Page.Trophies));
         if (gui.m_achievementsPanel)
             pages[(int)Page.Achievements] = new InlinePage(gui.m_achievementsPanel.transform, body, style,
@@ -462,7 +462,6 @@ internal sealed class CraftingMenu : IDisposable
             ZInput.ResetButtonStatus("Inventory");
             ZInput.ResetButtonStatus("Use");
         }
-
     }
 
     private readonly struct ScrollbarState

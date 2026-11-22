@@ -185,6 +185,8 @@ internal sealed class SelectionMenus : IDisposable
             bar.anchorMax = Vector2.one;
             bar.offsetMin = new Vector2(-15, 12);
             bar.offsetMax = new Vector2(-7, -74);
+            if (scrollbar.handleRect && scrollbar.handleRect.TryGetComponent<Image>(out var handle))
+                style.Sprite(handle, "meter-fill", MenuStyle.MutedScrollbar, force: true);
         }
 
         PositionOption(Owner.m_openServerToggle, 47);
@@ -242,7 +244,27 @@ internal sealed class SelectionMenus : IDisposable
             var rect = Move((RectTransform)control.transform, rail);
             CraftingMenu.Put(rect, 12, top, 12, 34);
             style.Control(control);
-            style.Text(control.GetComponentInChildren<TMP_Text>(true), ItemUi.Ink, 15);
+            var label = control.GetComponentInChildren<TMP_Text>(true);
+            if (!label) return;
+            style.Remember(new MenuRect(label.rectTransform).Restore);
+            var autosizing = label.enableAutoSizing;
+            var min = label.fontSizeMin;
+            var max = label.fontSizeMax;
+            var overflow = label.overflowMode;
+            style.Remember(() =>
+            {
+                if (!label) return;
+                label.enableAutoSizing = autosizing;
+                label.fontSizeMin = min;
+                label.fontSizeMax = max;
+                label.overflowMode = overflow;
+            });
+            ItemUi.Stretch(label.rectTransform, new Vector2(36, 0), new Vector2(-2, 0));
+            label.fontSizeMin = 11;
+            label.fontSizeMax = 15;
+            label.enableAutoSizing = true;
+            label.overflowMode = TextOverflowModes.Ellipsis;
+            style.Text(label, ItemUi.Ink, 15);
         }
 
         void SetupFooter(Button button, float left, float right, bool primary = false)

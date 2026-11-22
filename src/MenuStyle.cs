@@ -64,9 +64,11 @@ internal sealed class MenuStyle : IDisposable
 
     internal void Control(Selectable control)
     {
-        if (!control || control.targetGraphic is not Image image || visited.Contains(image)) return;
+        if (!control || control.targetGraphic is not Image image || visited.Contains(image) ||
+            string.Equals(image.name, "icon", StringComparison.OrdinalIgnoreCase)) return;
+        if (control is Toggle && image.rectTransform.rect.width > 1.65f * image.rectTransform.rect.height) return;
         string role = control is Slider || control is Scrollbar ? "meter-fill" : control is Button ? "button" : "slot";
-        Sprite(image, role, Color.white);
+        Sprite(image, role, control is Scrollbar ? MutedScrollbar : Color.white);
 
         var transition = control.transition;
         var states = control.spriteState;
@@ -94,6 +96,8 @@ internal sealed class MenuStyle : IDisposable
             control.colors = Palette;
         }
     }
+
+    internal static readonly Color32 MutedScrollbar = new(142, 164, 155, 218);
 
     internal static ColorBlock Palette => new()
     {

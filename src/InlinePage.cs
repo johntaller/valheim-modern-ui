@@ -49,6 +49,7 @@ internal sealed class InlinePage
         float scale = Mathf.Min(size.x / Mathf.Max(1, footprint.width), size.y / Mathf.Max(1, footprint.height));
         page.localScale = new Vector3(scale, scale, 1);
         page.anchoredPosition = -footprint.center * scale;
+        if (titles.Length > 0) page.anchoredPosition += Vector2.up * ((size.y - footprint.height * scale) * 0.5f);
     }
 
     private void FitToContents()

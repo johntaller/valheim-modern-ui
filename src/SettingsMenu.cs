@@ -45,7 +45,7 @@ internal sealed class SettingsMenu : IDisposable
         frame = ItemUi.Image(parent, "NewUI_Settings", art["panel"]).rectTransform;
         ItemUi.Stretch(frame, new Vector2(3, 6), new Vector2(-3, -6));
         frame.GetComponent<Image>().raycastTarget = true;
-        frame.SetAsFirstSibling();
+        frame.SetAsLastSibling();
         HideNativeChrome(parent, frame);
 
         var title = MenuStyle.Label(frame, "SettingsTitle", baseFont, Localization.instance.Localize("$menu_settings"),
@@ -88,7 +88,9 @@ internal sealed class SettingsMenu : IDisposable
             {
                 style.Control(button);
                 button.transition = Selectable.Transition.ColorTint;
-                button.colors = MenuStyle.Palette;
+                var colors = MenuStyle.Palette;
+                colors.disabledColor = Color.white;
+                button.colors = colors;
                 image.sprite = art["button"];
             }
             var selectedObj = button.transform.Find("Selected");
@@ -107,13 +109,13 @@ internal sealed class SettingsMenu : IDisposable
     {
         var plate = parent.GetComponent<Image>();
         if (plate) style.Hide(plate);
-        foreach (var image in parent.GetComponentsInChildren<Image>(true))
+        foreach (var image in parent.GetComponentsInChildren<Image>(false))
         {
-            if (image.transform.IsChildOf(replacement) || image == plate || !image.sprite) continue;
-            string sprite = image.sprite.name;
+            if (image.transform.IsChildOf(replacement) || image == plate || image.GetComponentInParent<Selectable>()) continue;
             bool tabPage = handler.m_tabs.Exists(tab => tab.m_page && image.transform.IsChildOf(tab.m_page));
-            if (!tabPage && sprite.StartsWith("woodpanel", StringComparison.Ordinal) &&
-                image.rectTransform.rect.width >= parent.rect.width * 0.55f) style.Hide(image);
+            Rect bounds = image.rectTransform.rect;
+            if (!tabPage && bounds.width >= parent.rect.width * 0.65f &&
+                bounds.height >= parent.rect.height * 0.55f) style.Hide(image);
         }
         string settingsTitle = Localization.instance.Localize("$menu_settings");
         foreach (var label in parent.GetComponentsInChildren<TMP_Text>(true))
