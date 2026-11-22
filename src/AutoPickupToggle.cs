@@ -39,9 +39,9 @@ internal sealed class AutoPickupToggle
         var label = ItemUi.Text(rect, "Label", font, 14, ItemUi.Ink);
         label.text = Localization.instance.Localize("$hud_autopickup");
         label.alignment = TextAlignmentOptions.MidlineLeft;
-        label.overflowMode = TextOverflowModes.Ellipsis;
+        label.overflowMode = TextOverflowModes.Overflow;
         const float labelLeft = 39;
-        float labelWidth = Mathf.Ceil(label.GetPreferredValues(label.text).x) + 2;
+        float labelWidth = Mathf.Max(100, Mathf.Ceil(label.GetPreferredValues(label.text).x) + 6);
         ItemUi.TopLeft(label.rectTransform, labelLeft, 0, labelWidth, 31);
         badge = ItemUi.Image(rect, "BindingBackground", art["button"]).rectTransform;
         ItemUi.TopLeft(badge, labelLeft + labelWidth + 7, 5, 25, 21);
