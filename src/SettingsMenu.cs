@@ -67,7 +67,7 @@ internal sealed class SettingsMenu : IDisposable
         separator.color = MenuStyle.Edge;
         CraftingMenu.Put(separator.rectTransform, 19, 46, 19, 1);
         var body = ItemUi.Rect(bodyPanel, "SettingsControls");
-        ItemUi.Stretch(body, new Vector2(14, 12), new Vector2(-14, -52));
+        ItemUi.Stretch(body, new Vector2(31, 12), new Vector2(-18, -52));
 
         pages = new InlinePage[handler.m_tabs.Count];
         names = new string[pages.Length];
@@ -152,10 +152,14 @@ internal sealed class SettingsMenu : IDisposable
         int tab = handler.GetActiveTab();
         if (tab >= 0 && tab < pages.Length)
         {
-            pages[tab]?.Fit();
             if (tab != selected)
             {
                 selected = tab;
+                if (handler.m_tabs[tab].m_page)
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(handler.m_tabs[tab].m_page);
+                if (handler.m_tabs[tab].m_page)
+                    foreach (var label in handler.m_tabs[tab].m_page.GetComponentsInChildren<TMP_Text>(false))
+                        label.ForceMeshUpdate();
                 heading.text = Localization.instance.Localize(names[tab] ?? "");
                 for (int i = 0; i < pages.Length; i++)
                 {
@@ -164,6 +168,7 @@ internal sealed class SettingsMenu : IDisposable
                 }
                 nextScan = 0;
             }
+            pages[tab]?.Fit();
         }
         if (Time.unscaledTime < nextScan) return;
         nextScan = Time.unscaledTime + 0.2f;
