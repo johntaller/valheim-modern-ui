@@ -12,6 +12,5 @@
   "health": "#943C40",
   "stamina": "#836227",
   "text": "#FFF5E0",
-  "healthLabel": "Здоровье",
-  "staminaLabel": "Выносливость"
+  "healthLabel": "Здоровье"
 }

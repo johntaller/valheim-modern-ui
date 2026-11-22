@@ -8,7 +8,9 @@ namespace ValheimNewUI;
 internal sealed class VitalsView
 {
     private readonly RectTransform root;
-    private readonly Meter health, stamina;
+    private readonly Meter health;
+    private readonly Image reticle;
+    private readonly StaminaArcs stamina;
     private readonly HashSet<Graphic> hidden = new();
 
     internal VitalsView(Hud hud, Canvas canvas, Theme theme)
@@ -19,8 +21,15 @@ internal sealed class VitalsView
         {
             // Keep the game's menus, fade and loading screen above the meters.
             root.SetAsFirstSibling();
-            health = new Meter(root, "Health", hud.m_healthText, true);
-            stamina = new Meter(root, "Stamina", hud.m_staminaText, false);
+            health = new Meter(root, hud.m_healthText);
+            reticle = hud.m_crosshair;
+            var arcs = ItemUi.Rect(reticle.rectTransform, "NewUI_StaminaArcs");
+            arcs.gameObject.SetActive(false);
+            arcs.anchorMin = arcs.anchorMax = arcs.pivot = new Vector2(0.5f, 0.5f);
+            arcs.anchoredPosition = Vector2.zero;
+            arcs.sizeDelta = new Vector2(60, 60);
+            stamina = arcs.gameObject.AddComponent<StaminaArcs>();
+            stamina.raycastTarget = false;
             Apply(theme);
             HideBar(hud.m_healthBarRoot);
             HideBar(hud.m_staminaBar2Root);
@@ -39,17 +48,19 @@ internal sealed class VitalsView
     {
         root.anchorMin = root.anchorMax = root.pivot = theme.Anchor;
         root.anchoredPosition = theme.Offset;
-        root.sizeDelta = new Vector2(theme.Width, theme.Height * 2 + theme.Gap);
-        health.Style(theme, theme.Health, theme.HealthLabel, theme.Height + theme.Gap);
-        stamina.Style(theme, theme.Stamina, theme.StaminaLabel, 0);
+        root.sizeDelta = new Vector2(theme.Width, theme.HealthTop);
+        health.Style(theme);
+        stamina.Style(theme);
     }
 
     internal void Refresh(Player player, bool visible)
     {
         if (root.gameObject.activeSelf != visible) root.gameObject.SetActive(visible);
-        if (!visible) return;
-        health.Value(player.GetHealth(), player.GetMaxHealth());
-        stamina.Value(player.GetStamina(), player.GetMaxStamina());
+        if (visible) health.Value(player.GetHealth(), player.GetMaxHealth());
+
+        bool showStamina = visible && reticle && reticle.isActiveAndEnabled && !Menu.IsVisible() && !Console.IsVisible();
+        if (stamina.gameObject.activeSelf != showStamina) stamina.gameObject.SetActive(showStamina);
+        if (showStamina) stamina.Value(player.GetStamina(), player.GetMaxStamina());
     }
 
     private void HideBar(RectTransform bar)
@@ -68,11 +79,8 @@ internal sealed class VitalsView
         foreach (var graphic in hidden)
             if (graphic) graphic.enabled = true;
         hidden.Clear();
-        if (root)
-        {
-            root.gameObject.SetActive(false);
-            Object.Destroy(root.gameObject);
-        }
+        ItemUi.Destroy(stamina);
+        ItemUi.Destroy(root);
     }
 
     private static RectTransform Node(string name, Transform parent)
@@ -105,9 +113,9 @@ internal sealed class VitalsView
         private int lastCurrent = -1, lastMax = -1;
         private float lastRatio = -1;
 
-        internal Meter(Transform parent, string name, TMP_Text template, bool isHealth)
+        internal Meter(Transform parent, TMP_Text template)
         {
-            frame = Layer(name + "Frame", parent);
+            frame = Layer("HealthFrame", parent);
             track = Layer("Background", frame.transform);
             fill = Layer("Fill", track.transform);
             Stretch(fill.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
@@ -117,14 +125,8 @@ internal sealed class VitalsView
             icon.anchoredPosition = new Vector2(16, 0);
             markA = Layer("StrokeA", icon);
             markB = Layer("StrokeB", icon);
-            markA.rectTransform.sizeDelta = isHealth ? new Vector2(12, 3) : new Vector2(3, 11);
-            markB.rectTransform.sizeDelta = isHealth ? new Vector2(3, 12) : new Vector2(3, 11);
-            if (!isHealth)
-            {
-                markA.rectTransform.anchoredPosition = new Vector2(-3, 0);
-                markB.rectTransform.anchoredPosition = new Vector2(3, 0);
-                icon.localRotation = Quaternion.Euler(0, 0, -22);
-            }
+            markA.rectTransform.sizeDelta = new Vector2(12, 3);
+            markB.rectTransform.sizeDelta = new Vector2(3, 12);
 
             label = MakeText("Label", template, TextAlignmentOptions.MidlineLeft);
             value = MakeText("Value", template, TextAlignmentOptions.MidlineRight);
@@ -145,20 +147,20 @@ internal sealed class VitalsView
             return text;
         }
 
-        internal void Style(Theme theme, Color tint, string title, float y)
+        internal void Style(Theme theme)
         {
             var rect = frame.rectTransform;
             rect.anchorMin = rect.anchorMax = rect.pivot = Vector2.zero;
             rect.sizeDelta = new Vector2(theme.Width, theme.Height);
-            rect.anchoredPosition = new Vector2(0, y);
+            rect.anchoredPosition = new Vector2(0, theme.HealthTop - theme.Height);
             var inset = Vector2.one * theme.Padding;
             Stretch(track.rectTransform, Vector2.zero, Vector2.one, inset, -inset);
             frame.color = theme.Frame;
             track.color = theme.Background;
-            fill.color = tint;
+            fill.color = theme.Health;
             label.color = value.color = markA.color = markB.color = theme.Text;
             label.fontSizeMax = value.fontSizeMax = Mathf.Min(theme.Height - 5, 22);
-            label.text = title;
+            label.text = theme.HealthLabel;
         }
 
         internal void Value(float current, float max)

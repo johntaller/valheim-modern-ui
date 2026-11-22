@@ -80,6 +80,16 @@ internal sealed class DurabilityEdge : MaskableGraphic
         if (gameObject.activeSelf != show) gameObject.SetActive(show);
         if (!show) return;
         float next = Mathf.Clamp01(item.GetDurabilityPercentage());
+        if (next == 0)
+        {
+            const float period = 0.9f;
+            float flash = 0.5f + 0.5f * Mathf.Cos(Time.unscaledTime * (2 * Mathf.PI / period));
+            canvasRenderer.SetColor(Color32.Lerp(Low, Color.white, flash));
+        }
+        else if (value == 0)
+        {
+            canvasRenderer.SetColor(Color.white);
+        }
         if (next == value) return;
         value = next;
         SetVerticesDirty();
@@ -91,15 +101,18 @@ internal sealed class DurabilityEdge : MaskableGraphic
         var rect = rectTransform.rect;
         if (rect.width <= 8 || value < 0) return;
 
-        var track = value == 0 ? new Color32(151, 43, 45, 225) : new Color32(18, 22, 21, 225);
-        DrawStroke(mesh, rect, 1, track);
-        if (value > 0)
+        if (value == 0)
         {
-            Color32 tint = value <= 0.5f
-                ? Color32.Lerp(Low, Middle, value * 2)
-                : Color32.Lerp(Middle, High, (value - 0.5f) * 2);
-            DrawStroke(mesh, rect, value, tint);
+            // Keep the full edge visible so its renderer can pulse at zero durability.
+            DrawStroke(mesh, rect, 1, Color.white);
+            return;
         }
+
+        DrawStroke(mesh, rect, 1, new Color32(18, 22, 21, 225));
+        Color32 tint = value <= 0.5f
+            ? Color32.Lerp(Low, Middle, value * 2)
+            : Color32.Lerp(Middle, High, (value - 0.5f) * 2);
+        DrawStroke(mesh, rect, value, tint);
     }
 
     private static void DrawStroke(VertexHelper mesh, Rect rect, float fraction, Color32 tint)
