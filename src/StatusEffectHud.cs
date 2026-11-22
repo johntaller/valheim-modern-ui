@@ -92,6 +92,7 @@ internal sealed class StatusEffectHud : IDisposable
             followNewest = false;
         }
         rail.gameObject.SetActive(canScroll);
+        root.anchoredPosition = new Vector2(184, inventory ? 28 : -7);
         surface.color = inventory ? new Color32(20, 18, 16, 210) : Color.clear;
         if (canScroll)
         {

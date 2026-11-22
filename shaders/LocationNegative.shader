@@ -4,7 +4,7 @@ Shader "ValheimNewUI/LocationNegative"
     {
         _MainTex ("Font Atlas", 2D) = "white" {}
         _FaceColor ("Text Color", Color) = (1,1,1,1)
-        _FaceDilate ("Dilate", Float) = -0.24
+        _FaceDilate ("Dilate", Float) = -0.075
         _WeightNormal ("Weight", Float) = 0
         _WeightBold ("Bold Weight", Float) = 0.5
         _GradientScale ("SDF Range", Float) = 5

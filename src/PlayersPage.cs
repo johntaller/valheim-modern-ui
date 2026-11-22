@@ -49,9 +49,10 @@ internal sealed class PlayersPage
         railRect.offsetMax = Vector2.zero;
         scroll.verticalScrollbar = rail;
         scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
-        empty = MenuStyle.Label(Root, "Empty", font, MenuStyle.Translate("No other players online", "Других игроков онлайн нет"),
+        empty = MenuStyle.Label(Root, "Empty", font, MenuStyle.Translate("No players online. This list shows players with Valheim New UI only.", "Нет игроков онлайн. Здесь отображаются только игроки с Valheim New UI."),
             17, ItemUi.Muted, TextAlignmentOptions.Center);
-        CraftingMenu.Put(empty.rectTransform, 4, 8, 4, 38);
+        empty.textWrappingMode = TextWrappingModes.Normal;
+        CraftingMenu.Put(empty.rectTransform, 4, 8, 4, 60);
         Root.gameObject.SetActive(false);
     }
 
@@ -73,6 +74,8 @@ internal sealed class PlayersPage
     private sealed class Row
     {
         private readonly TextMeshProUGUI name, location, metrics, pin;
+        private readonly RawImage portrait;
+        private readonly Image silhouette;
         private OnlinePlayers.Peer peer;
         internal readonly RectTransform Rect;
 
@@ -80,15 +83,23 @@ internal sealed class PlayersPage
         {
             Rect = ItemUi.Image(parent, "PlayerCard", art["slot"]).rectTransform;
             CraftingMenu.Put(Rect, 0, i * 88, 0, 82);
+            var frame = ItemUi.Image(Rect, "PortraitWell", art["slot"]);
+            ItemUi.TopLeft(frame.rectTransform, 9, 17, 48, 48);
+            silhouette = ItemUi.Image(frame.transform, "PortraitPlaceholder", art["player-portrait"]);
+            silhouette.color = ItemUi.Muted;
+            ItemUi.Stretch(silhouette.rectTransform, Vector2.one * 6, Vector2.one * -6);
+            portrait = ItemUi.Rect(frame.transform, "Portrait").gameObject.AddComponent<RawImage>();
+            portrait.raycastTarget = false;
+            ItemUi.Stretch(portrait.rectTransform, Vector2.one * 2, Vector2.one * -2);
             name = MenuStyle.Label(Rect, "Name", HudStyle.DisplayFont(font), "", 19, ItemUi.Ink);
             name.richText = false;
             name.overflowMode = TextOverflowModes.Ellipsis;
-            CraftingMenu.Put(name.rectTransform, 11, 5, 112, 24);
+            CraftingMenu.Put(name.rectTransform, 67, 5, 112, 24);
             location = MenuStyle.Label(Rect, "Location", font, "", 14, ItemUi.Accent);
-            CraftingMenu.Put(location.rectTransform, 11, 30, 8, 20);
+            CraftingMenu.Put(location.rectTransform, 67, 30, 8, 20);
             metrics = MenuStyle.Label(Rect, "Metrics", font, "", 13, ItemUi.Muted);
             metrics.textWrappingMode = TextWrappingModes.Normal;
-            CraftingMenu.Put(metrics.rectTransform, 11, 49, 8, 29);
+            CraftingMenu.Put(metrics.rectTransform, 67, 49, 8, 29);
             var button = MenuStyle.Button(Rect, art, font, "", () => players.TogglePin(peer.Key), out pin, 13);
             var buttonRect = (RectTransform)button.transform;
             buttonRect.anchorMin = buttonRect.anchorMax = buttonRect.pivot = Vector2.one;
@@ -101,11 +112,18 @@ internal sealed class PlayersPage
             peer = player;
             Rect.gameObject.SetActive(true);
             name.text = player.Name;
+            portrait.texture = player.Portrait;
+            portrait.enabled = player.Portrait;
+            portrait.color = player.Dead ? new Color32(115, 110, 110, 255) : Color.white;
+            silhouette.enabled = !portrait.enabled;
             string distance = player.Distance is float meters ? $"{meters:0} " + MenuStyle.Translate("m", "м") : "—";
             string biome = player.Biome is Heightmap.Biome area && area != Heightmap.Biome.None
                 ? Localization.instance.Localize("$biome_" + area.ToString().ToLowerInvariant()) : "—";
             location.text = $"{distance}   ·   {biome}" + (player.Dead ? "   ·   " + MenuStyle.Translate("Dead", "Погиб") : "");
-            metrics.text = MenuStyle.Translate("Armor —    Best skill —", "Броня —    Лучший навык —");
+            string skill = player.Skill == Skills.SkillType.None ? "—"
+                : Localization.instance.Localize("$skill_" + player.Skill.ToString().ToLowerInvariant()) + $" {player.SkillLevel:0.#}";
+            metrics.text = string.Format(MenuStyle.Translate("Armor {0}    Best skill {1}", "Броня {0}    Лучший навык {1}"),
+                player.Armor.ToString("0.#"), skill);
             pin.text = player.Pinned ? MenuStyle.Translate("Unpin", "Открепить") : MenuStyle.Translate("Pin", "Закрепить");
         }
     }

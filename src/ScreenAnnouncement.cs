@@ -28,7 +28,7 @@ internal sealed class ScreenAnnouncement : IDisposable
         title.fontSizeMax = 88;
         title.textWrappingMode = TextWrappingModes.NoWrap;
         thinTitle = new Material(title.fontSharedMaterial);
-        thinTitle.SetFloat(ShaderUtilities.ID_FaceDilate, -0.33f);
+        thinTitle.SetFloat(ShaderUtilities.ID_FaceDilate, -0.075f);
         var shader = LoadLocationShader();
         if (shader)
         {
