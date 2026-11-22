@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace ValheimNewUI;
 
-[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.2")]
+[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.3")]
 public sealed class Plugin : BaseUnityPlugin
 {
     private string themePath, lastContent, lastReadError;
@@ -37,7 +37,7 @@ public sealed class Plugin : BaseUnityPlugin
         }
         Logger.LogInfo($"HUD theme file: {themePath}");
         artwork = new Artwork(Path.Combine(Path.GetDirectoryName(themePath), "artwork"), Logger);
-        harmony = new Harmony("local.valheimnewui.equipment");
+        harmony = new Harmony("local.valheimnewui.patches");
         try
         {
             harmony.PatchAll(typeof(Plugin).Assembly);
@@ -46,7 +46,7 @@ public sealed class Plugin : BaseUnityPlugin
         {
             harmony.UnpatchSelf();
             harmony = null;
-            Logger.LogError($"Could not install equipment slots: {ex}");
+            Logger.LogError($"Could not install UI hooks: {ex}");
         }
         ReloadTheme();
     }
@@ -76,6 +76,7 @@ public sealed class Plugin : BaseUnityPlugin
             Logger.LogWarning($"Invalid theme; keeping current settings. {ex.Message}");
             return;
         }
+        NativeMessagePatch.SetEnabled(theme.Enabled && harmony != null);
         if (theme.Enabled) view?.Apply(theme);
         else Release();
         failedHud = null;
@@ -103,8 +104,9 @@ public sealed class Plugin : BaseUnityPlugin
             {
                 skin = new InterfaceSkin(hud, artwork);
                 owner = hud;
+                NativeMessagePatch.SetEnabled(harmony != null);
             }
-            skin.PrepareForRender();
+            skin.PrepareForRender(theme);
 
             var player = Player.m_localPlayer;
             if (!player || player.IsDead())
@@ -126,6 +128,7 @@ public sealed class Plugin : BaseUnityPlugin
         catch (Exception ex)
         {
             Release();
+            NativeMessagePatch.SetEnabled(false);
             failedHud = hud;
             Logger.LogError($"Could not prepare interface; restored original graphics. {ex}");
         }
@@ -160,6 +163,7 @@ public sealed class Plugin : BaseUnityPlugin
 
     private void OnDestroy()
     {
+        NativeMessagePatch.SetEnabled(false);
         harmony?.UnpatchSelf();
         artwork?.Dispose();
     }
@@ -169,6 +173,7 @@ public sealed class Plugin : BaseUnityPlugin
 
     private void OnDisable()
     {
+        NativeMessagePatch.SetEnabled(false);
         Canvas.preWillRenderCanvases -= BeforeCanvasRender;
         Release();
         if (!quitting && harmony != null) EquipmentInventory.Refresh(false);
