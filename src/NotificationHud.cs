@@ -78,20 +78,18 @@ internal sealed class NotificationHud : IDisposable
         float width = root.rect.width;
         float column = Mathf.Clamp((width - 40) / 2, 110, 254);
         const float bottom = 211;
-        float offset = column * 0.5f + 8;
         skill.Show(!covered && !hidden ? skillNotice : null, now, 0, -173, 470);
         Stack(pickups, gained, now, 0, -72, 232, covered, hidden, -1);
-        bool hasItems = itemDiscoveries.Exists(notice => notice.Expires > now && (!hidden || notice.Force));
+        const float discoveryBottom = 24;
         bool hasBuildings = buildingDiscoveries.Exists(notice => notice.Expires > now && (!hidden || notice.Force));
-        bool both = hasItems && hasBuildings;
-        float left = Stack(items, itemDiscoveries, now, both ? -offset : 0, bottom, column, covered, hidden);
-        float right = Stack(buildings, buildingDiscoveries, now, both ? offset : 0, bottom, column, covered, hidden);
-        Stack(messages, active, now, 0, Mathf.Max(left, right), 470, covered, hidden);
+        Stack(items, itemDiscoveries, now, -24 - (hasBuildings ? column + 12 : 0), discoveryBottom, column, covered, hidden);
+        Stack(buildings, buildingDiscoveries, now, -24, discoveryBottom, column, covered, hidden);
+        Stack(messages, active, now, 0, bottom, 470, covered, hidden);
         bool death = deathNotice != null && now < deathNotice.Expires;
         announcement.Show(death ? deathNotice : !covered && !hidden ? biomeNotice : null, now);
     }
 
-    private static float Stack(Toast[] views, List<Notice> notices, float now, float x, float y, float width,
+    private static void Stack(Toast[] views, List<Notice> notices, float now, float x, float y, float width,
         bool covered, bool hidden, int direction = 1)
     {
         notices.RemoveAll(notice => notice.Expires <= now);
@@ -106,7 +104,6 @@ internal sealed class NotificationHud : IDisposable
             }
         }
         while (shown < views.Length) views[shown++].Show(null, now, 0, 0, width);
-        return y;
     }
 
     private void Add(Notice notice)
@@ -189,6 +186,7 @@ internal sealed class NotificationHud : IDisposable
     public void Dispose()
     {
         Restore();
+        announcement.Dispose();
         ItemUi.Destroy(root);
     }
 
@@ -231,7 +229,8 @@ internal sealed class NotificationHud : IDisposable
             pickup = kind == Kind.Pickup;
             var card = pickup ? HudStyle.Shadow(parent, art, 0.92f) : ItemUi.Image(parent, kind.ToString(), art["item-card"]);
             rect = card.rectTransform;
-            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, skill ? 1 : pickup ? 0.5f : 0);
+            bool discovery = kind is Kind.Item or Kind.Building;
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(discovery ? 1 : 0.5f, skill ? 1 : pickup ? 0.5f : 0);
             group = card.gameObject.AddComponent<CanvasGroup>();
             group.blocksRaycasts = false;
             if (skill)

@@ -1,4 +1,6 @@
+using System;
 using System.Reflection;
+using HarmonyLib;
 using TMPro;
 using UnityEngine;
 using Image = UnityEngine.UI.Image;
@@ -18,9 +20,7 @@ internal sealed class ItemTooltip
     private readonly Image surface, header, icon, rule, banner, bannerEdge, footerRule;
     private readonly TextMeshProUGUI title, details, warning, footer, stack, weight;
     private readonly Image weightIcon;
-    private readonly DurabilityEdge durability;
-    private GameObject nativePopup;
-    private HiddenGraphics nativeVisuals;
+    private readonly Image durabilityTrack, durabilityFill;
     private ItemDrop.ItemData lastItem;
     private string lastText, lastTopic, lastFooter;
     private bool lastCheated;
@@ -71,8 +71,11 @@ internal sealed class ItemTooltip
         weight.alignment = TextAlignmentOptions.MidlineRight;
         weightIcon = ItemUi.Image(card, "WeightIcon", art["weight"]);
         weightIcon.color = ItemUi.Accent;
-        durability = ItemUi.Rect(card, "Durability").gameObject.AddComponent<DurabilityEdge>();
-        durability.raycastTarget = false;
+        durabilityTrack = ItemUi.Image(card, "DurabilityTrack", art["slot"]);
+        durabilityFill = ItemUi.Image(durabilityTrack.transform, "DurabilityFill", art["meter-fill"]);
+        durabilityFill.type = Image.Type.Filled;
+        durabilityFill.fillMethod = Image.FillMethod.Horizontal;
+        ItemUi.Stretch(durabilityFill.rectTransform, Vector2.one * 2, -Vector2.one * 2);
         card.gameObject.SetActive(false);
     }
 
@@ -88,14 +91,6 @@ internal sealed class ItemTooltip
             Hide();
             return;
         }
-        if (popup != nativePopup)
-        {
-            nativeVisuals?.Restore();
-            nativePopup = popup;
-            nativeVisuals = new HiddenGraphics(popup);
-            nativeVisuals.SetRaycasts(false);
-        }
-
         bool anchored = ZInput.IsExclusiveGamepadActive() || ZInput.IsTouchActive();
         Camera camera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
         Vector2 screen = anchored ? RectTransformUtility.WorldToScreenPoint(camera, slot.TransformPoint(slot.rect.center)) : ZInput.pointerPosition;
@@ -116,7 +111,10 @@ internal sealed class ItemTooltip
             Refresh(owner, (RectTransform)owner.transform, item);
             return;
         }
-        Show(item, owner.m_topic, owner.m_text, "", ZInput.pointerPosition);
+        string text = owner.m_text;
+        if (string.IsNullOrEmpty(text))
+            text = item == lastItem && card.gameObject.activeSelf ? lastText : item.GetTooltip();
+        Show(item, item.m_shared.m_name, text, "", ZInput.pointerPosition);
     }
 
     internal void RefreshWorld(ItemDrop.ItemData item, Vector2 screen, string pickupHint)
@@ -150,7 +148,12 @@ internal sealed class ItemTooltip
             lastMaxHeight = maxHeight;
             Layout(item, width, maxHeight);
         }
-        durability.SetItem(pickupHint.Length > 0 ? item : null);
+        if (durabilityTrack.enabled)
+        {
+            float remaining = Mathf.Clamp01(item.GetDurabilityPercentage());
+            durabilityFill.fillAmount = remaining > 0 ? remaining : 1;
+            durabilityFill.color = DurabilityEdge.MeterColor(remaining);
+        }
         Camera camera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
         RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, screen, camera, out var pointer);
         float height = card.rect.height;
@@ -174,7 +177,7 @@ internal sealed class ItemTooltip
         float bodyWidth = Mathf.Max(1, width - padding * 2);
         string warningText = Localization.instance.Localize("$achievements_cheated_item_inventory");
         string nativeWarning = "\n<color=#808080><i>" + warningText + "</i></color>";
-        string text = Localization.instance.Localize(lastText.Replace(nativeWarning, "")).Trim();
+        string text = CleanDescription(lastText.Replace(nativeWarning, ""));
         text = text.Replace("<color=orange>", "<color=#E8BC77>").Replace("<color=yellow>", "<color=#F0D59B>");
         title.text = Localization.instance.Localize(lastTopic);
         details.text = text;
@@ -185,11 +188,12 @@ internal sealed class ItemTooltip
 
         bool withFooter = lastFooter.Length > 0;
         const int footerHeight = 36;
-        stack.enabled = weight.enabled = weightIcon.enabled = withFooter;
+        stack.enabled = weight.enabled = weightIcon.enabled = true;
+        durabilityTrack.enabled = durabilityFill.enabled = item.m_shared.m_useDurability;
         stack.text = $"×{item.m_stack}";
         weight.text = $"{item.GetWeight():0.##} " + MenuStyle.Translate("kg", "кг");
-        float rightColumn = withFooter ? Mathf.Max(56, Mathf.Ceil(stack.GetPreferredValues(stack.text).x) + 11) : 0;
-        float bottomSpace = withFooter ? padding + footerHeight : padding;
+        float rightColumn = Mathf.Max(65, Mathf.Ceil(stack.GetPreferredValues(stack.text).x) + 11);
+        float bottomSpace = padding + footerHeight;
         float available = Mathf.Max(1, maxHeight - bodyY - bottomSpace);
         details.fontSize = 16;
         ItemUi.TopLeft(details.rectTransform, padding, bodyY, bodyWidth, available);
@@ -209,12 +213,10 @@ internal sealed class ItemTooltip
         ItemUi.TopLeft(header.rectTransform, padding, start, 42, 42);
         ItemUi.TopLeft(title.rectTransform, padding + 54, start, Mathf.Max(1, bodyWidth - 54 - rightColumn), 42);
         ItemUi.TopLeft(stack.rectTransform, width - padding - rightColumn, start, rightColumn, 23);
-        ItemUi.TopLeft(durability.rectTransform, width - padding - rightColumn, start + 26, rightColumn + 3, 12);
+        ItemUi.TopLeft(durabilityTrack.rectTransform, width - padding - rightColumn, start + 27, rightColumn, 8);
         ItemUi.TopLeft(rule.rectTransform, padding, start + 51, bodyWidth, 1);
         ItemUi.TopLeft(details.rectTransform, padding, bodyY, bodyWidth, Mathf.Max(1, height - bodyY - bottomSpace + 5));
-        footerRule.enabled = withFooter;
         footer.enabled = withFooter;
-        if (!withFooter) return;
         footer.text = lastFooter;
         ItemUi.TopLeft(footerRule.rectTransform, padding, height - footerHeight - 7, bodyWidth, 1);
         float weightWidth = Mathf.Ceil(weight.GetPreferredValues(weight.text).x);
@@ -228,17 +230,62 @@ internal sealed class ItemTooltip
         ItemUi.TopLeft(weightIcon.rectTransform, width - padding - weightWidth - 21, footerTop + 10, 16, 16);
     }
 
+    private static string CleanDescription(string text)
+    {
+        // InventoryGrid supplies Valheim's untranslated tooltip, including its stat tokens.
+        var lines = text.Split('\n');
+        return Localization.instance.Localize(string.Join("\n", Array.FindAll(lines, line =>
+        {
+            string label = line.TrimStart();
+            return !label.StartsWith("$item_weight:", StringComparison.Ordinal)
+                && !label.StartsWith("$item_durability:", StringComparison.Ordinal)
+                && !label.StartsWith("$item_stack:", StringComparison.Ordinal)
+                && !label.StartsWith("$item_quantity:", StringComparison.Ordinal);
+        }))).Trim();
+    }
+
     private void Hide()
     {
         if (card && card.gameObject.activeSelf) card.gameObject.SetActive(false);
-        nativeVisuals?.Restore();
-        nativeVisuals = null;
-        nativePopup = null;
     }
 
     internal void Dispose()
     {
         Hide();
         ItemUi.Destroy(card);
+    }
+}
+
+[HarmonyPatch]
+internal static class InventoryTooltipPopup
+{
+    private static CanvasGroup mutedPopup;
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(UITooltip), nameof(UITooltip.OnHoverStart))]
+    [HarmonyPatch(typeof(UITooltip), "LateUpdate")]
+    private static void SuppressItemPopup(UITooltip __instance, UITooltip ___m_current, GameObject ___m_tooltip)
+    {
+        if (__instance != ___m_current || !___m_tooltip) return;
+        var cell = NativeMessagePatch.Enabled && InventoryGui.IsVisible()
+            ? __instance.GetComponentInParent<InventoryElement>() : null;
+        bool mute = cell && cell.m_tooltip == __instance;
+        if (!mute || mutedPopup && mutedPopup.gameObject != ___m_tooltip) Restore();
+        if (!mute || mutedPopup) return;
+        // Keep Valheim's focus and timer alive while preventing any popup frame from drawing.
+        mutedPopup = ___m_tooltip.AddComponent<CanvasGroup>();
+        mutedPopup.alpha = 0;
+        mutedPopup.blocksRaycasts = false;
+    }
+
+    internal static void Restore()
+    {
+        if (mutedPopup)
+        {
+            mutedPopup.alpha = 1;
+            mutedPopup.blocksRaycasts = true;
+            UnityEngine.Object.Destroy(mutedPopup);
+        }
+        mutedPopup = null;
     }
 }

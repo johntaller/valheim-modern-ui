@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using HarmonyLib;
 using TMPro;
@@ -7,11 +6,12 @@ using UnityEngine;
 
 namespace ValheimNewUI;
 
-internal sealed class ScreenAnnouncement
+internal sealed class ScreenAnnouncement : IDisposable
 {
     private readonly RectTransform root, shadow;
     private readonly CanvasGroup group;
     private readonly TextMeshProUGUI title, details;
+    private readonly Material thinTitle, negativeTitle;
 
     internal ScreenAnnouncement(Transform parent, Artwork art, TMP_FontAsset font)
     {
@@ -27,7 +27,15 @@ internal sealed class ScreenAnnouncement
         title.fontSizeMin = 35;
         title.fontSizeMax = 88;
         title.textWrappingMode = TextWrappingModes.NoWrap;
-        title.fontStyle = FontStyles.Bold;
+        thinTitle = new Material(title.fontSharedMaterial);
+        thinTitle.SetFloat(ShaderUtilities.ID_FaceDilate, -0.075f);
+        var shader = LoadLocationShader();
+        if (shader)
+        {
+            negativeTitle = new Material(shader);
+            negativeTitle.mainTexture = title.font.atlasTexture;
+            negativeTitle.SetFloat(ShaderUtilities.ID_GradientScale, thinTitle.GetFloat(ShaderUtilities.ID_GradientScale));
+        }
         details = ItemUi.Text(root, "Details", font, 20, ItemUi.Ink);
         details.richText = false;
         details.alignment = TextAlignmentOptions.Top;
@@ -42,16 +50,50 @@ internal sealed class ScreenAnnouncement
         if (!show) return;
         if (root.GetSiblingIndex() != root.parent.childCount - 1) root.SetAsLastSibling();
         bool death = notice.Type == NotificationHud.Kind.Death;
+        shadow.gameObject.SetActive(death || !negativeTitle);
+        var material = death || !negativeTitle ? thinTitle : negativeTitle;
+        if (title.fontSharedMaterial != material) title.fontSharedMaterial = material;
         float width = Mathf.Clamp(root.rect.width - 32, 120, 1160);
         HudStyle.Center(shadow, 0, death ? -42 : 0, width + 160, death ? 414 : 265);
         HudStyle.Center(title.rectTransform, 0, 0, width, 116);
         HudStyle.Center(details.rectTransform, 0, -122, Mathf.Min(width, 780), 137);
-        if (title.text != notice.Title) title.text = notice.Title;
+        string heading = notice.Title.TrimEnd('!', '！', ' ');
+        if (title.text != heading) title.text = heading;
         if (details.text != notice.Subtitle) details.text = notice.Subtitle;
-        title.color = death ? new Color32(214, 49, 44, 255) : ItemUi.Ink;
+        title.color = death ? new Color32(214, 49, 44, 255) : Color.white;
         float age = now - notice.Created;
         group.alpha = Mathf.SmoothStep(0, 1, Mathf.Clamp01(age / (death ? 1.05f : 0.65f)))
             * Mathf.SmoothStep(0, 1, Mathf.Clamp01((notice.Expires - now) / (death ? 2.1f : 4.2f)));
+    }
+
+    private static Shader LoadLocationShader()
+    {
+        string platform = Application.platform switch
+        {
+            RuntimePlatform.OSXPlayer => "standaloneosx",
+            RuntimePlatform.WindowsPlayer => "standalonewindows64",
+            RuntimePlatform.LinuxPlayer => "standalonelinux64",
+            _ => ""
+        };
+        using var stream = typeof(ScreenAnnouncement).Assembly.GetManifestResourceStream($"ValheimNewUI.location-negative.{platform}.bundle");
+        if (stream == null) return null;
+        using var bytes = new System.IO.MemoryStream();
+        stream.CopyTo(bytes);
+        var bundle = AssetBundle.LoadFromMemory(bytes.ToArray());
+        if (!bundle) return null;
+        var shader = bundle.LoadAsset<Shader>("assets/locationnegative.shader");
+        bundle.Unload(false);
+        return shader && shader.isSupported ? shader : null;
+    }
+
+    public void Dispose()
+    {
+        if (negativeTitle)
+        {
+            UnityEngine.Object.Destroy(negativeTitle.shader);
+            UnityEngine.Object.Destroy(negativeTitle);
+        }
+        UnityEngine.Object.Destroy(thinTitle);
     }
 }
 
@@ -87,41 +129,24 @@ internal static class LifeNotices
     }
 
     [HarmonyPatch(typeof(Player), nameof(Player.OnDeath)), HarmonyPrefix]
-    private static void BeforeDeath(Player __instance, out Dictionary<Skills.SkillType, float> __state)
+    private static void BeforeDeath(Player __instance, out double? __state)
     {
-        __state = null;
-        if (!NativeMessagePatch.Enabled || __instance != Player.m_localPlayer) return;
-        LifeStart(__instance);
-        __state = new Dictionary<Skills.SkillType, float>();
-        foreach (var skill in __instance.GetSkills().GetSkillList())
-            __state[skill.m_info.m_skill] = skill.m_level;
+        __state = NativeMessagePatch.Enabled && __instance == Player.m_localPlayer ? LifeStart(__instance) : null;
     }
 
     [HarmonyPatch(typeof(Player), nameof(Player.OnDeath)), HarmonyPostfix]
-    private static void AfterDeath(Player __instance, Dictionary<Skills.SkillType, float> __state)
+    private static void AfterDeath(Player __instance, double? __state)
     {
-        if (__state == null) return;
+        if (!__state.HasValue) return;
         double now = ZNet.instance ? ZNet.instance.GetTimeSeconds() : 0;
         double days = EnvMan.instance && EnvMan.instance.m_dayLengthSec > 0
-            ? (now - LifeStart(__instance)) / EnvMan.instance.m_dayLengthSec : 0;
+            ? (now - __state.Value) / EnvMan.instance.m_dayLengthSec : 0;
         if (ZNet.instance) __instance.m_customData[Key(ZNet.instance.GetWorldUID())] = "-1";
 
-        var lost = new List<(string Name, float Levels)>();
-        foreach (var pair in __state)
-        {
-            float loss = pair.Value - __instance.GetSkills().GetSkillLevel(pair.Key);
-            if (loss > 0.001f)
-                lost.Add((Localization.instance.Localize("$skill_" + pair.Key.ToString().ToLowerInvariant()), loss));
-        }
-        lost.Sort((left, right) => right.Levels.CompareTo(left.Levels));
         string heading = MenuStyle.Translate("Days survived", "Дней прожито");
         string number = days is > 0 and < 0.01 ? "< 0.01" : days.ToString("0.##", CultureInfo.CurrentCulture);
-        var lines = new List<string>();
-        foreach (var loss in lost) lines.Add($"{loss.Name} −{loss.Levels:0.###}");
-        string summary = lines.Count == 0 ? MenuStyle.Translate("No skill levels lost", "Уровни навыков не потеряны")
-            : string.Join("  ·  ", lines);
         string title = Localization.instance.Localize("$msg_youdied").ToUpper(CultureInfo.CurrentCulture);
-        NativeMessagePatch.Enqueue(MessageHud.instance, new NotificationHud.Notice(title, $"{heading}  {number}\n{summary}",
+        NativeMessagePatch.Enqueue(MessageHud.instance, new NotificationHud.Notice(title, $"{heading}  {number}",
             null, 0, NotificationHud.Kind.Death, true, 10));
     }
 

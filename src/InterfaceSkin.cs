@@ -28,7 +28,7 @@ internal sealed class InterfaceSkin : IDisposable
     private bool pauseWasOpen;
     private float nextPrune;
 
-    internal InterfaceSkin(Hud hud, Artwork art)
+    internal InterfaceSkin(Hud hud, Artwork art, PlayerCardSync cards)
     {
         this.hud = hud;
         this.art = art;
@@ -37,7 +37,7 @@ internal sealed class InterfaceSkin : IDisposable
         if (!canvas) return;
         worldRoot = ItemUi.Rect(canvas.transform, "NewUI_WorldHud");
         ItemUi.Stretch(worldRoot, Vector2.zero, Vector2.zero);
-        onlinePlayers = new OnlinePlayers(worldRoot, art, hud.m_healthText.font);
+        onlinePlayers = new OnlinePlayers(worldRoot, art, hud.m_healthText.font, cards);
         var hotbar = hud.m_rootObject.GetComponentInChildren<HotkeyBar>(true);
         if (hotbar && hotbar.m_elementPrefab && hud.m_healthText)
             items = new ItemInterface(hotbar, art, hud.m_healthText.font, onlinePlayers);

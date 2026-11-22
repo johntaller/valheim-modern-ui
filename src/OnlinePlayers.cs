@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 namespace ValheimNewUI;
@@ -13,17 +12,17 @@ internal sealed class OnlinePlayers : IDisposable
     private readonly HashSet<string> pinned = new(StringComparer.Ordinal);
     private readonly RectTransform root;
     private readonly HudRow[] rows = new HudRow[5];
-    private readonly PortraitCamera portraits;
+    private readonly PlayerCardSync cards;
     private float nextRefresh;
 
     internal IReadOnlyList<Peer> Peers => peers;
 
-    internal OnlinePlayers(RectTransform parent, Artwork art, TMP_FontAsset font)
+    internal OnlinePlayers(RectTransform parent, Artwork art, TMP_FontAsset font, PlayerCardSync cards)
     {
+        this.cards = cards;
         root = ItemUi.Rect(parent, "NearbyPlayers");
         root.anchorMin = root.anchorMax = root.pivot = Vector2.one;
         root.sizeDelta = new Vector2(228, rows.Length * 51);
-        portraits = new GameObject("NewUI_PortraitCamera").AddComponent<PortraitCamera>();
         for (int i = 0; i < rows.Length; i++) rows[i] = new HudRow(root, art, font, i);
     }
 
@@ -51,7 +50,7 @@ internal sealed class OnlinePlayers : IDisposable
             foreach (var peer in peers)
             {
                 if (!peer.InRange && !peer.Pinned) continue;
-                rows[shown++].Refresh(peer, portraits);
+                rows[shown++].Refresh(peer);
                 if (shown == rows.Length) break;
             }
         }
@@ -68,21 +67,18 @@ internal sealed class OnlinePlayers : IDisposable
         foreach (var info in net.GetPlayerList())
         {
             if (info.m_characterID == localId || string.IsNullOrEmpty(info.m_name)) continue;
+            var card = cards.Get(info.m_characterID);
+            if (card == null) continue;
             var instance = scene.FindInstance(info.m_characterID);
             var remote = instance ? instance.GetComponent<Player>() : null;
             if (remote == player) continue;
-            var zdo = info.m_characterID.IsNone() ? null : ZDOMan.instance?.GetZDO(info.m_characterID);
-            // Use the in-world character when it is streamed and the public map
-            // position when it isn't. A private position stays private at range.
+            // A private map position remains private while the character is out of streaming range.
             Vector3? position = remote ? remote.transform.position : info.m_publicPosition ? info.m_position : null;
             float? distance = position.HasValue ? Vector3.Distance(player.transform.position, position.Value) : null;
-            float health = remote ? remote.GetHealth() : zdo?.GetFloat(ZDOVars.s_health, -1) ?? -1;
-            float maximum = remote ? remote.GetMaxHealth() : zdo?.GetFloat(ZDOVars.s_maxHealth, -1) ?? -1;
-            bool dead = (remote && remote.IsDead()) || zdo?.GetBool(ZDOVars.s_dead, false) == true || health == 0 && maximum > 0;
             string platform = info.m_userInfo.m_id.ToString();
             string key = platform + "|" + info.m_name;
             Heightmap.Biome? biome = position.HasValue ? Heightmap.FindBiome(position.Value) : null;
-            peers.Add(new Peer(key, info.m_name, remote, distance, biome, health, maximum, dead,
+            peers.Add(new Peer(key, info.m_name, distance, biome, card,
                 pinned.Contains(key), distance.HasValue && distance.Value <= range));
         }
         peers.Sort((left, right) =>
@@ -101,31 +97,33 @@ internal sealed class OnlinePlayers : IDisposable
 
     public void Dispose()
     {
-        foreach (var row in rows) row.Dispose();
-        if (portraits) UnityEngine.Object.Destroy(portraits.gameObject);
         ItemUi.Destroy(root);
     }
 
     internal sealed class Peer
     {
         internal readonly string Key, Name;
-        internal readonly Player Character;
+        internal readonly Texture2D Portrait;
+        internal readonly Skills.SkillType Skill;
         internal readonly float? Distance;
         internal readonly Heightmap.Biome? Biome;
-        internal readonly float Health, MaxHealth;
+        internal readonly float Health, MaxHealth, Armor, SkillLevel;
         internal readonly bool Dead, Pinned, InRange;
 
-        internal Peer(string key, string name, Player character, float? distance, Heightmap.Biome? biome,
-            float health, float maxHealth, bool dead, bool pinned, bool inRange)
+        internal Peer(string key, string name, float? distance, Heightmap.Biome? biome,
+            PlayerCardSync.Snapshot card, bool pinned, bool inRange)
         {
             Key = key;
             Name = name;
-            Character = character;
+            Portrait = card.Portrait;
+            Skill = card.Skill;
+            SkillLevel = card.Level;
+            Armor = card.Armor;
             Distance = distance;
             Biome = biome;
-            Health = health;
-            MaxHealth = maxHealth;
-            Dead = dead;
+            Health = card.Health;
+            MaxHealth = card.MaxHealth;
+            Dead = card.Dead;
             Pinned = pinned;
             InRange = inRange;
         }
@@ -137,9 +135,6 @@ internal sealed class OnlinePlayers : IDisposable
         private readonly Image silhouette, fill;
         private readonly RawImage avatar;
         private readonly TextMeshProUGUI name, health;
-        private RenderTexture portrait;
-        private string previous;
-        private float nextDraw;
 
         internal HudRow(Transform parent, Artwork art, TMP_FontAsset font, int index)
         {
@@ -154,7 +149,7 @@ internal sealed class OnlinePlayers : IDisposable
             avatar = ItemUi.Rect(well.transform, "Portrait").gameObject.AddComponent<RawImage>();
             avatar.raycastTarget = false;
             ItemUi.Stretch(avatar.rectTransform, Vector2.one * 2, Vector2.one * -2);
-            name = MenuStyle.Label(row, "Name", font, "", 16, ItemUi.Ink);
+            name = MenuStyle.Label(row, "Name", HudStyle.DisplayFont(font), "", 17, ItemUi.Ink);
             name.richText = false;
             name.overflowMode = TextOverflowModes.Ellipsis;
             ItemUi.TopLeft(name.rectTransform, 50, 0, 172, 20);
@@ -170,112 +165,131 @@ internal sealed class OnlinePlayers : IDisposable
             ItemUi.Stretch(fill.rectTransform, Vector2.zero, Vector2.zero);
         }
 
-        internal void Refresh(Peer player, PortraitCamera camera)
+        internal void Refresh(Peer player)
         {
             row.gameObject.SetActive(true);
-            if (previous != player.Key)
-            {
-                previous = player.Key;
-                nextDraw = 0;
-                avatar.enabled = false;
-            }
             name.text = (player.Pinned ? "◆  " : "") + player.Name;
             health.text = player.Dead ? MenuStyle.Translate("Dead", "Погиб")
                 : player.Health >= 0 ? $"{Mathf.CeilToInt(player.Health)} / " +
                   (player.MaxHealth > 0 ? Mathf.CeilToInt(player.MaxHealth).ToString() : "—") : "—";
             health.color = player.Dead ? (Color)ItemUi.Warning : ItemUi.Muted;
             fill.fillAmount = !player.Dead && player.MaxHealth > 0 ? Mathf.Clamp01(player.Health / player.MaxHealth) : 0;
-            if (!player.Character || player.Dead)
-            {
-                avatar.enabled = false;
-                silhouette.enabled = true;
-                return;
-            }
-            if (Time.unscaledTime >= nextDraw)
-            {
-                nextDraw = Time.unscaledTime + 1.5f;
-                if (!portrait) portrait = new RenderTexture(96, 96, 16, RenderTextureFormat.ARGB32);
-                avatar.texture = portrait;
-                camera.Request(player.Character, portrait, avatar);
-            }
+            avatar.texture = player.Portrait;
+            avatar.enabled = player.Portrait;
+            avatar.color = player.Dead ? new Color32(115, 110, 110, 255) : Color.white;
             silhouette.enabled = !avatar.enabled;
         }
 
         internal void Hide() => row.gameObject.SetActive(false);
 
-        internal void Dispose()
-        {
-            if (portrait) UnityEngine.Object.Destroy(portrait);
-        }
     }
 }
 
 internal sealed class PortraitCamera : MonoBehaviour
 {
-    private readonly List<(Player Player, RenderTexture Target, RawImage Output)> requests = new();
+    private const int StudioLayer = 28;
+    private static readonly Vector3 Studio = new(0, 6000, 0);
+    private readonly List<Mesh> bakedMeshes = new();
     private Camera camera;
-    private CommandBuffer commands;
+    private Light lightSource;
 
     private void Awake()
     {
         camera = gameObject.AddComponent<Camera>();
         camera.enabled = false;
-        camera.cullingMask = 0;
+        camera.cullingMask = 1 << StudioLayer;
         camera.clearFlags = CameraClearFlags.SolidColor;
-        camera.backgroundColor = Color.clear;
+        camera.backgroundColor = new Color32(18, 23, 27, 255);
         camera.orthographic = true;
         camera.orthographicSize = 0.28f;
-        camera.nearClipPlane = 0.19f;
-        camera.farClipPlane = 0.98f;
+        camera.nearClipPlane = 0.28f;
+        camera.farClipPlane = 1.06f;
         camera.allowHDR = false;
         camera.allowMSAA = false;
         camera.renderingPath = RenderingPath.Forward;
-        commands = new CommandBuffer { name = "Valheim New UI portraits" };
-        camera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, commands);
+        lightSource = gameObject.AddComponent<Light>();
+        lightSource.type = LightType.Point;
+        lightSource.intensity = 1.7f;
+        lightSource.range = 3;
+        lightSource.cullingMask = camera.cullingMask;
+        lightSource.enabled = false;
     }
 
-    internal void Request(Player player, RenderTexture target, RawImage output) => requests.Add((player, target, output));
-
-    private void Update()
+    internal byte[] Capture(Player player, int size)
     {
-        // Render outside the canvas callback so the portrait pass cannot reenter HUD layout.
-        foreach (var request in requests)
+        var visual = player.GetVisual();
+        if (!visual) return null;
+        var subject = new GameObject("NewUI_PortraitSubject");
+        var target = RenderTexture.GetTemporary(size, size, 16, RenderTextureFormat.ARGB32);
+        var image = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        var previous = RenderTexture.active;
+        try
         {
-            var player = request.Player;
-            if (!player || player.IsDead() || !request.Target || !request.Output || !request.Output.gameObject.activeInHierarchy)
-                continue;
-            var visual = player.GetVisual();
-            if (!visual) continue;
-            Vector3 forward = visual.transform.forward;
             Vector3 eye = player.GetEyePoint();
-            Vector3 center = eye - Vector3.up * 0.025f;
-            camera.transform.SetPositionAndRotation(center + forward * 0.68f, Quaternion.LookRotation(-forward, Vector3.up));
-            commands.Clear();
-            int count = 0;
             foreach (var renderer in visual.GetComponentsInChildren<Renderer>())
-            {
-                if (!renderer.enabled || renderer is not (SkinnedMeshRenderer or MeshRenderer)) continue;
-                if (renderer.bounds.SqrDistance(eye) > 0.16f) continue;
-                var materials = renderer.sharedMaterials;
-                for (int i = 0; i < materials.Length; i++)
-                {
-                    if (!materials[i]) continue;
-                    commands.DrawRenderer(renderer, materials[i], i, 0);
-                    count++;
-                }
-            }
-            if (count == 0) continue;
-            camera.targetTexture = request.Target;
+                if (renderer.enabled)
+                    CopyMesh(renderer, eye, subject.transform);
+            if (subject.transform.childCount == 0) return null;
+
+            Vector3 forward = visual.transform.forward;
+            Vector3 center = Studio - Vector3.up * 0.025f;
+            lightSource.enabled = true;
+            camera.transform.SetPositionAndRotation(center + forward * 0.7f, Quaternion.LookRotation(-forward, Vector3.up));
+            camera.targetTexture = target;
             camera.Render();
-            request.Output.enabled = true;
+            RenderTexture.active = target;
+            image.ReadPixels(new Rect(0, 0, size, size), 0, 0, false);
+            var bytes = image.GetRawTextureData();
+            bool subjectVisible = false;
+            for (int i = 0; i < bytes.Length; i += 4)
+            {
+                int contrast = Mathf.Abs(bytes[i] - bytes[0]) + Mathf.Abs(bytes[i + 1] - bytes[1])
+                    + Mathf.Abs(bytes[i + 2] - bytes[2]);
+                subjectVisible |= contrast > 10;
+                bytes[i + 3] = 255;
+            }
+            return subjectVisible ? bytes : null;
         }
-        requests.Clear();
-        camera.targetTexture = null;
+        finally
+        {
+            lightSource.enabled = false;
+            camera.targetTexture = null;
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(target);
+            subject.SetActive(false);
+            Destroy(subject);
+            Destroy(image);
+            foreach (var mesh in bakedMeshes) Destroy(mesh);
+            bakedMeshes.Clear();
+        }
     }
 
-    private void OnDestroy()
+    private void CopyMesh(Renderer source, Vector3 eye, Transform parent)
     {
-        if (camera && commands != null) camera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, commands);
-        commands?.Dispose();
+        Mesh mesh;
+        if (source is SkinnedMeshRenderer skinned)
+        {
+            if (!skinned.sharedMesh) return;
+            mesh = new Mesh();
+            skinned.BakeMesh(mesh);
+            bakedMeshes.Add(mesh);
+        }
+        else if (source is MeshRenderer && source.TryGetComponent<MeshFilter>(out var filter))
+            mesh = filter.sharedMesh;
+        else return;
+        if (!mesh) return;
+
+        var part = new GameObject(source.name) { layer = StudioLayer };
+        part.transform.SetParent(parent);
+        part.transform.SetPositionAndRotation(Studio + source.transform.position - eye, source.transform.rotation);
+        part.transform.localScale = source.transform.lossyScale;
+        part.AddComponent<MeshFilter>().sharedMesh = mesh;
+        var renderer = part.AddComponent<MeshRenderer>();
+        renderer.sharedMaterials = source.sharedMaterials;
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        var properties = new MaterialPropertyBlock();
+        source.GetPropertyBlock(properties);
+        if (!properties.isEmpty) renderer.SetPropertyBlock(properties);
     }
 }

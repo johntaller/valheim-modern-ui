@@ -8,10 +8,12 @@ namespace ValheimNewUI;
 internal sealed class Compass
 {
     private const float HalfAngle = 65;
+    private static readonly Color32 DeathYellow = new(255, 217, 63, 255);
     private readonly RectTransform rect, heading, pins, details;
     private readonly Image shadow, focusedMarker;
     private readonly TextMeshProUGUI pinName, pinDistance;
-    private readonly List<Image> markers = new();
+    private readonly List<(Image Image, Outline Outline)> markers = new();
+    private readonly Outline focusedOutline;
     private readonly List<(Minimap.PinData Pin, float Angle, float Distance)> visiblePins = new();
     private readonly RectTransform[] ticks = new RectTransform[24];
 
@@ -53,9 +55,7 @@ internal sealed class Compass
 
         focusedMarker = ItemUi.Image(rect, "FocusedMapPin");
         focusedMarker.preserveAspect = true;
-        var outline = focusedMarker.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color32(239, 187, 93, 216);
-        outline.effectDistance = new Vector2(1.25f, 1.25f);
+        focusedOutline = AddOutline(focusedMarker);
         details = ItemUi.Rect(rect, "Target");
         HudStyle.Center(details, 0, -43, 390, 46);
         var detailShadow = HudStyle.Shadow(details, art, 0.80f);
@@ -71,9 +71,17 @@ internal sealed class Compass
         ItemUi.TopLeft(pinDistance.rectTransform, 0, 26, 390, 18);
     }
 
+    private static Outline AddOutline(Image image)
+    {
+        var outline = image.gameObject.AddComponent<Outline>();
+        outline.effectDistance = Vector2.one * 1.25f;
+        outline.useGraphicAlpha = false;
+        return outline;
+    }
+
     internal void Hide() => rect.gameObject.SetActive(false);
 
-    internal void Refresh(Player player, List<Minimap.PinData> source, bool[] visibleTypes, float sharedFade, float highlightDistance)
+    internal void Refresh(Player player, List<Minimap.PinData> source, Minimap.PinData deathPin, bool[] visibleTypes, float sharedFade, float highlightDistance)
     {
         if (!rect.gameObject.activeSelf) rect.gameObject.SetActive(true);
         float width = Mathf.Clamp(((RectTransform)rect.parent).rect.width * 0.31f, 190, 430);
@@ -122,10 +130,13 @@ internal sealed class Compass
             {
                 var marker = ItemUi.Image(pins, "BearingPin");
                 marker.preserveAspect = true;
-                markers.Add(marker);
+                markers.Add((marker, AddOutline(marker)));
             }
             var (pin, angle, distance) = visiblePins[i];
-            var image = markers[i];
+            var (image, outline) = markers[i];
+            bool death = pin == deathPin;
+            outline.enabled = death;
+            if (death) outline.effectColor = DeathYellow;
             float near = 1 / (1 + distance / 140);
             float brightness = 0.40f + 0.60f * near;
             image.sprite = pin.m_icon;
@@ -135,13 +146,14 @@ internal sealed class Compass
             image.rectTransform.sizeDelta = Vector2.one * Mathf.Lerp(14, 20, near);
             image.enabled = i != focused;
         }
-        for (int i = visiblePins.Count; i < markers.Count; i++) markers[i].enabled = false;
+        for (int i = visiblePins.Count; i < markers.Count; i++) markers[i].Image.enabled = false;
         focusedMarker.enabled = focused >= 0;
         details.gameObject.SetActive(focused >= 0);
         if (focused >= 0)
         {
             var (pin, angle, distance) = visiblePins[focused];
             focusedMarker.sprite = pin.m_icon;
+            focusedOutline.effectColor = pin == deathPin ? DeathYellow : new Color32(239, 187, 93, 216);
             focusedMarker.color = ItemUi.Ink;
             HudStyle.Center(focusedMarker.rectTransform, angle * scale, -8, 24, 24);
             string name = string.IsNullOrWhiteSpace(pin.m_name)
