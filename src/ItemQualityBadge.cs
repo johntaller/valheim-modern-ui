@@ -27,7 +27,6 @@ internal sealed class ItemQualityBadge
         shade.effectDistance = new Vector2(0, -1);
         level = ItemUi.Text(root, "Level", font, 13, Gold);
         level.fontStyle = FontStyles.Bold;
-        level.outlineWidth = 0.24f;
         level.alignment = TextAlignmentOptions.MidlineLeft;
         level.textWrappingMode = TextWrappingModes.NoWrap;
         ItemUi.Stretch(level.rectTransform, new Vector2(14, 0), Vector2.zero);
