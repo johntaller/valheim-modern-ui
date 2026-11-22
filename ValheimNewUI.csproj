@@ -4,7 +4,7 @@
     <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <LangVersion>10</LangVersion>
-    <Version>0.0.9</Version>
+    <Version>0.0.10</Version>
     <ManagedDir Condition="'$(ManagedDir)' == ''">$(GameDir)/valheim.app/Contents/Resources/Data/Managed</ManagedDir>
     <CoreDir>$(GameDir)/BepInEx/core</CoreDir>
   </PropertyGroup>
@@ -17,7 +17,7 @@
     <Compile Include="src/*.cs" />
     <EmbeddedResource Include="theme.json" LogicalName="ValheimNewUI.theme.json" />
     <EmbeddedResource Include="artwork/*.png" LogicalName="ValheimNewUI.artwork.%(Filename)%(Extension)" />
-    <Reference Include="$(ManagedDir)/UnityEngine.ImageConversionModule.dll;$(ManagedDir)/mscorlib.dll;$(ManagedDir)/netstandard.dll;$(ManagedDir)/System.dll;$(ManagedDir)/System.Core.dll;$(ManagedDir)/Newtonsoft.Json.dll;$(ManagedDir)/UnityEngine.dll;$(ManagedDir)/UnityEngine.CoreModule.dll;$(ManagedDir)/UnityEngine.AnimationModule.dll;$(ManagedDir)/UnityEngine.UIModule.dll;$(ManagedDir)/UnityEngine.PhysicsModule.dll;$(ManagedDir)/UnityEngine.UI.dll;$(ManagedDir)/Unity.TextMeshPro.dll;$(ManagedDir)/assembly_valheim.dll;$(ManagedDir)/assembly_utils.dll;$(ManagedDir)/assembly_guiutils.dll;$(ManagedDir)/gui_framework.dll;$(CoreDir)/BepInEx.dll">
+    <Reference Include="$(ManagedDir)/UnityEngine.ImageConversionModule.dll;$(ManagedDir)/mscorlib.dll;$(ManagedDir)/netstandard.dll;$(ManagedDir)/System.dll;$(ManagedDir)/System.Core.dll;$(ManagedDir)/Newtonsoft.Json.dll;$(ManagedDir)/UnityEngine.dll;$(ManagedDir)/UnityEngine.CoreModule.dll;$(ManagedDir)/UnityEngine.AnimationModule.dll;$(ManagedDir)/UnityEngine.UIModule.dll;$(ManagedDir)/UnityEngine.PhysicsModule.dll;$(ManagedDir)/UnityEngine.UI.dll;$(ManagedDir)/Unity.TextMeshPro.dll;$(ManagedDir)/assembly_valheim.dll;$(ManagedDir)/Splatform.dll;$(ManagedDir)/assembly_utils.dll;$(ManagedDir)/assembly_guiutils.dll;$(ManagedDir)/gui_framework.dll;$(CoreDir)/BepInEx.dll">
       <Private>false</Private>
     </Reference>
   </ItemGroup>
