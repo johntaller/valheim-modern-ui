@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <LangVersion>10</LangVersion>
+    <ManagedDir>$(GameDir)/valheim.app/Contents/Resources/Data/Managed</ManagedDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(ManagedDir)/mscorlib.dll;$(ManagedDir)/netstandard.dll;$(ManagedDir)/System.dll;$(ManagedDir)/System.Core.dll;$(GameDir)/BepInEx/core/0Harmony.dll;$(GameDir)/BepInEx/core/BepInEx.dll;$(ManagedDir)/UnityEngine.CoreModule.dll;$(ManagedDir)/UnityEngine.dll;$(ManagedDir)/assembly_valheim.dll;$(ManagedDir)/assembly_utils.dll;$(ManagedDir)/Splatform.dll" Private="false" />
+  </ItemGroup>
+</Project>
