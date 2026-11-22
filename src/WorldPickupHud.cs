@@ -79,7 +79,7 @@ internal sealed class WorldPickupHud : IDisposable
         foreach (var (drop, collider) in drops)
         {
             if (!drop || drop == selected || !collider || !collider.enabled || !drop.isActiveAndEnabled
-                || drop.m_itemData.m_pickedUp || drop.InTar()) continue;
+                || drop.InTar()) continue;
             var bounds = collider.bounds;
             var world = bounds.center;
             float distance = Vector3.Distance(eye, bounds.ClosestPoint(eye));
