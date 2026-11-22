@@ -4,7 +4,7 @@
     <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <LangVersion>10</LangVersion>
-    <Version>0.0.7</Version>
+    <Version>0.0.8</Version>
     <ManagedDir Condition="'$(ManagedDir)' == ''">$(GameDir)/valheim.app/Contents/Resources/Data/Managed</ManagedDir>
     <CoreDir>$(GameDir)/BepInEx/core</CoreDir>
   </PropertyGroup>
