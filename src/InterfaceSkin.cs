@@ -18,7 +18,7 @@ internal sealed class InterfaceSkin : IDisposable
     private readonly Vector3[] corners = new Vector3[4];
     private readonly ItemInterface items;
     private readonly RectTransform worldRoot;
-    private readonly WorldPickupHud pickups;
+    private readonly WorldInteractionHud worldInteractions;
     private readonly MapHud mapHud;
     private readonly NotificationHud notifications;
     private RectTransform pausePlate;
@@ -37,7 +37,7 @@ internal sealed class InterfaceSkin : IDisposable
         if (!canvas) return;
         worldRoot = ItemUi.Rect(canvas.transform, "NewUI_WorldHud");
         ItemUi.Stretch(worldRoot, Vector2.zero, Vector2.zero);
-        pickups = new WorldPickupHud(hud, canvas, worldRoot, art);
+        worldInteractions = new WorldInteractionHud(hud, canvas, worldRoot, art);
         mapHud = new MapHud(hud, worldRoot, art);
         notifications = new NotificationHud(worldRoot, art, hud.m_healthText.font);
     }
@@ -70,7 +70,7 @@ internal sealed class InterfaceSkin : IDisposable
         bool mapOpen = Minimap.IsOpen();
         bool visible = player && !player.IsDead() && hud.isActiveAndEnabled && hud.m_rootObject.activeInHierarchy && hud.IsVisible();
         bool covered = paused || mapOpen || Console.IsVisible() || (TextViewer.instance && TextViewer.instance.IsVisible());
-        pickups?.Refresh(player, visible && !covered && !inventoryOpen);
+        worldInteractions?.Refresh(player, visible && !covered && !inventoryOpen);
         mapHud?.Refresh(player, visible && !mapOpen && !inventoryOpen);
         notifications?.Refresh(visible && !inventoryOpen && !mapOpen, theme, covered);
         if (Time.unscaledTime >= nextPrune)
@@ -242,7 +242,7 @@ internal sealed class InterfaceSkin : IDisposable
     public void Dispose()
     {
         notifications?.Dispose();
-        pickups?.Dispose();
+        worldInteractions?.Dispose();
         mapHud?.Dispose();
         ItemUi.Destroy(worldRoot);
         items?.Dispose();
