@@ -8,7 +8,7 @@ namespace ValheimNewUI;
 internal sealed class Theme
 {
     internal readonly bool Enabled;
-    internal readonly float Padding;
+    internal readonly float Padding, CompassHighlightDistance;
     internal readonly Color Frame, Background, Health, Stamina, Text;
 
     internal Theme(string json)
@@ -46,6 +46,8 @@ internal sealed class Theme
         if (Field("enabled").Type != JTokenType.Boolean) throw new FormatException("'enabled' must be true or false.");
         Enabled = (bool)data["enabled"];
         Padding = Number("padding", 0, 57);
+        CompassHighlightDistance = data["compassHighlightDistance"] == null
+            ? 500 : Number("compassHighlightDistance", 0, float.MaxValue);
         Frame = Tint("frame");
         Background = Tint("background");
         Health = Tint("health");

@@ -15,7 +15,9 @@ internal sealed class RestHud
     internal RestHud(RectTransform parent, Artwork art, TMP_FontAsset font)
     {
         root = ItemUi.Rect(parent, "CampAndComfort");
-        root.anchorMin = root.anchorMax = root.pivot = new Vector2(0.5f, 1);
+        root.anchorMin = root.anchorMax = new Vector2(0.5f, 0);
+        root.pivot = new Vector2(0.5f, 1);
+        root.anchoredPosition = new Vector2(0, -4);
         root.sizeDelta = new Vector2(150, 60);
         var shadow = HudStyle.Shadow(root, art, 0.86f);
         HudStyle.Center(shadow.rectTransform, 0, 0, 200, 104);
@@ -36,7 +38,7 @@ internal sealed class RestHud
         progress.fillMethod = Image.FillMethod.Horizontal;
     }
 
-    internal void Refresh(Player player, float top)
+    internal void Refresh(Player player)
     {
         var statuses = player.GetSEMan();
         bool sheltered = statuses.GetStatusEffect(SEMan.s_statusEffectShelter);
@@ -44,7 +46,6 @@ internal sealed class RestHud
         var resting = statuses.GetStatusEffect(SEMan.s_statusEffectResting) as SE_Cozy;
         root.gameObject.SetActive(sheltered || byFire || resting);
         if (!root.gameObject.activeSelf) return;
-        root.anchoredPosition = new Vector2(0, -top);
         shelter.enabled = sheltered;
         fire.enabled = byFire;
         ItemUi.TopLeft(shelter.rectTransform, byFire ? 49 : 64, 4, 22, 22);

@@ -1,5 +1,6 @@
 {
   "enabled": true,
+  "compassHighlightDistance": 500,
   "padding": 2,
   "frame": "#99856D",
   "background": "#211F20F0",

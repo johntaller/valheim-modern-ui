@@ -74,7 +74,7 @@ internal sealed class InterfaceSkin : IDisposable
         bool visible = player && !player.IsDead() && hud.isActiveAndEnabled && hud.m_rootObject.activeInHierarchy && hud.IsVisible();
         bool covered = paused || mapOpen || Console.IsVisible() || (TextViewer.instance && TextViewer.instance.IsVisible());
         worldInteractions?.Refresh(player, visible && !covered && !inventoryOpen);
-        mapHud?.Refresh(player, visible && !mapOpen && !inventoryOpen);
+        mapHud?.Refresh(player, visible && !mapOpen && !inventoryOpen, theme.CompassHighlightDistance);
         notifications?.Refresh(visible && !inventoryOpen && !mapOpen, covered);
         if (vitals == null && worldRoot && hud.m_crosshair && hud.m_healthBarRoot && hud.m_staminaBar2Root)
         {
@@ -100,15 +100,17 @@ internal sealed class InterfaceSkin : IDisposable
             if (!image || !visited.Add(image)) continue;
             string name = image.name;
             string source = image.sprite ? image.sprite.name : "";
-            string role = image == hud.m_crosshair ? "reticle" : Role(source, name, image);
+            bool crosshair = image == hud.m_crosshair;
+            string role = crosshair ? "reticle" : Role(source, name, image);
             if (role == null) continue;
             bool keepTint = role == "meter-fill" || name == "dropFocus" || name == "queued" || name == "equiped";
             var control = image.GetComponentInParent<Selectable>();
             if (control && (control.targetGraphic != image || control.transition != Selectable.Transition.SpriteSwap))
                 control = null;
-            originals.Add(new Original(image, !keepTint, control));
+            originals.Add(new Original(image, !keepTint, control, crosshair));
             image.sprite = art[role];
             image.type = role is "meter-fill" or "reticle" or "player-marker" ? Image.Type.Simple : Image.Type.Sliced;
+            if (crosshair) image.rectTransform.localScale *= 0.84f;
             if (control)
             {
                 var state = control.spriteState;
@@ -228,7 +230,8 @@ internal sealed class InterfaceSkin : IDisposable
         private readonly bool tinted;
         private readonly Selectable control;
         private readonly SpriteState states;
-        internal Original(Image image, bool tinted, Selectable control)
+        private readonly Vector3? originalScale;
+        internal Original(Image image, bool tinted, Selectable control, bool scaleChanged)
         {
             Image = image;
             sprite = image.sprite;
@@ -237,6 +240,7 @@ internal sealed class InterfaceSkin : IDisposable
             this.tinted = tinted;
             this.control = control;
             states = control ? control.spriteState : default;
+            originalScale = scaleChanged ? image.rectTransform.localScale : null;
         }
         internal void Restore()
         {
@@ -245,6 +249,7 @@ internal sealed class InterfaceSkin : IDisposable
             Image.type = type;
             if (tinted) Image.color = color;
             if (control) control.spriteState = states;
+            if (originalScale.HasValue) Image.rectTransform.localScale = originalScale.Value;
         }
     }
 

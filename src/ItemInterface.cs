@@ -585,7 +585,7 @@ internal sealed class ItemInterface : IDisposable
                 ItemUi.TopLeft(weightValue.rectTransform, frame + half + 2, footer, half - 4, 21);
                 ItemUi.TopLeft(weightTrack.rectTransform, frame + half, footer + 23, half, 9);
                 pickup.Align(body.anchoredPosition.x + frame, -body.anchoredPosition.y + footer + 1, half - 12);
-                equipment.Align(body, height);
+                equipment.Align(body);
                 if (armorBadge) armorBadge.anchoredPosition = armorPosition + Vector2.down * pitch;
             }
             if (shadow && shadow.enabled != shadowWasEnabled) shadow.enabled = shadowWasEnabled;

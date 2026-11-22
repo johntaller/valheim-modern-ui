@@ -15,7 +15,7 @@ internal sealed class StaminaArcs : MaskableGraphic
     internal void Style(Theme theme)
     {
         track = theme.Background;
-        fill = Color.Lerp(theme.Stamina, theme.Text, 0.28f);
+        fill = Color.Lerp(theme.Stamina, theme.Text, 0.60f);
         SetVerticesDirty();
     }
 

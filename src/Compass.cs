@@ -11,7 +11,6 @@ internal sealed class Compass
     private readonly RectTransform rect, heading, pins, details;
     private readonly Image shadow, focusedMarker;
     private readonly TextMeshProUGUI pinName, pinDistance;
-    private readonly RestHud rest;
     private readonly List<Image> markers = new();
     private readonly List<(Minimap.PinData Pin, float Angle, float Distance)> visiblePins = new();
     private readonly RectTransform[] ticks = new RectTransform[24];
@@ -59,8 +58,8 @@ internal sealed class Compass
         outline.effectDistance = new Vector2(1.25f, 1.25f);
         details = ItemUi.Rect(rect, "Target");
         HudStyle.Center(details, 0, -43, 390, 46);
-        var detailShadow = HudStyle.Shadow(details, art, 0.95f);
-        HudStyle.Center(detailShadow.rectTransform, 0, 0, 344, 103);
+        var detailShadow = HudStyle.Shadow(details, art, 0.80f);
+        HudStyle.Center(detailShadow.rectTransform, 0, 0, 452, 122);
         pinName = ItemUi.Text(details, "PinName", displayFont, 22, ItemUi.Ink);
         pinName.richText = false;
         pinName.alignment = TextAlignmentOptions.Center;
@@ -70,12 +69,11 @@ internal sealed class Compass
         pinDistance = ItemUi.Text(details, "Distance", font, 15, ItemUi.Accent);
         pinDistance.alignment = TextAlignmentOptions.Center;
         ItemUi.TopLeft(pinDistance.rectTransform, 0, 26, 390, 18);
-        rest = new RestHud(rect, art, displayFont);
     }
 
     internal void Hide() => rect.gameObject.SetActive(false);
 
-    internal void Refresh(Player player, List<Minimap.PinData> source, bool[] visibleTypes, float sharedFade)
+    internal void Refresh(Player player, List<Minimap.PinData> source, bool[] visibleTypes, float sharedFade, float highlightDistance)
     {
         if (!rect.gameObject.activeSelf) rect.gameObject.SetActive(true);
         float width = Mathf.Clamp(((RectTransform)rect.parent).rect.width * 0.31f, 190, 430);
@@ -114,7 +112,7 @@ internal sealed class Compass
         for (int i = 0; i < visiblePins.Count; i++)
         {
             float angle = Mathf.Abs(visiblePins[i].Angle);
-            if (angle > closestAngle) continue;
+            if (visiblePins[i].Distance > highlightDistance || angle > closestAngle) continue;
             closestAngle = angle;
             focused = i;
         }
@@ -153,6 +151,5 @@ internal sealed class Compass
             pinDistance.SetText(Localization.instance.GetSelectedLanguage() == "Russian" ? "{0} м" : "{0} m",
                 Mathf.RoundToInt(distance));
         }
-        rest.Refresh(player, focused >= 0 ? 88 : 50);
     }
 }

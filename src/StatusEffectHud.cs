@@ -8,32 +8,27 @@ namespace ValheimNewUI;
 
 internal sealed class StatusEffectHud : IDisposable
 {
-    private const float Width = 174, Height = 33, Pitch = 37, VisibleRows = 3;
-    private readonly RectTransform root, content, rail, handle;
+    private const float Width = 174, Height = 33, Pitch = 37;
+    private const int VisibleRows = 3;
+    private readonly RectTransform root, rail, handle;
     private readonly Image surface;
     private readonly Canvas canvas;
-    private readonly Artwork art;
-    private readonly TMP_FontAsset font;
     private readonly HiddenGraphics nativeEffects;
     private readonly List<StatusEffect> effects = new();
-    private readonly List<Row> rows = new();
-    private int lastInputFrame = -1;
-    private float offset;
+    private readonly List<StatusEffect> harmful = new(), other = new();
+    private readonly Row[] rows = new Row[VisibleRows];
+    private int lastInputFrame = -1, firstRow;
     private bool dragging;
 
     internal StatusEffectHud(Hud hud, RectTransform parent, Artwork art)
     {
-        this.art = art;
-        font = hud.m_healthText.font;
         surface = ItemUi.Image(parent, "ActiveEffects");
         root = surface.rectTransform;
-        ItemUi.TopLeft(root, 287, 10, Width + 18, Pitch * VisibleRows);
+        ItemUi.TopLeft(root, 184, 7, Width + 18, Pitch * VisibleRows);
         canvas = parent.GetComponentInParent<Canvas>().rootCanvas;
-        var viewport = ItemUi.Rect(root, "Viewport");
-        ItemUi.Stretch(viewport, Vector2.zero, new Vector2(-8, 0));
-        viewport.gameObject.AddComponent<RectMask2D>();
-        content = ItemUi.Rect(viewport, "Effects");
-        ItemUi.TopLeft(content, 0, 0, Width, Pitch * VisibleRows);
+        var shadows = ItemUi.Rect(root, "RowShadows");
+        ItemUi.Stretch(shadows, Vector2.zero, Vector2.zero);
+        for (int i = 0; i < rows.Length; i++) rows[i] = new Row(root, shadows, art, hud.m_healthText.font, i);
         var track = ItemUi.Image(root, "EffectsScrollbar", art["meter-fill"]);
         track.color = new Color32(43, 36, 27, 244);
         rail = track.rectTransform;
@@ -48,38 +43,42 @@ internal sealed class StatusEffectHud : IDisposable
     {
         effects.Clear();
         player.GetSEMan().GetHUDStatusEffects(effects);
-        int shown = 0;
+        harmful.Clear();
+        other.Clear();
         foreach (var effect in effects)
         {
-            if (effect.m_hidden || RestHud.HasDedicatedSlot(effect.NameHash())) continue;
-            if (shown == rows.Count) rows.Add(new Row(content, art, font));
-            rows[shown].Refresh(effect, shown);
-            shown++;
+            int hash = effect.NameHash();
+            if (effect.m_hidden || RestHud.HasDedicatedSlot(hash)) continue;
+            (IsHarmful(effect, hash) ? harmful : other).Add(effect);
         }
-        for (int i = shown; i < rows.Count; i++) rows[i].Rect.gameObject.SetActive(false);
-        root.gameObject.SetActive(shown > 0);
-        if (shown == 0) return;
-        bool canScroll = inventory && shown > VisibleRows;
+        int count = harmful.Count + other.Count;
+        root.gameObject.SetActive(count > 0);
+        int lastRow = Mathf.Max(0, count - VisibleRows);
+        bool canScroll = inventory && lastRow > 0;
         rail.gameObject.SetActive(canScroll);
         surface.color = inventory ? new Color32(20, 18, 16, 210) : Color.clear;
         if (canScroll)
         {
-            float travel = Pitch * (shown - VisibleRows);
-            float thumbHeight = rail.rect.height * VisibleRows / shown;
-            ReadScroll(travel, thumbHeight);
-            offset = Mathf.Clamp(offset, 0, travel);
-            ItemUi.TopLeft(handle, 0, (rail.rect.height - thumbHeight) * offset / travel, rail.rect.width, thumbHeight);
+            float thumbHeight = rail.rect.height * VisibleRows / count;
+            ReadScroll(lastRow, thumbHeight);
+            firstRow = Mathf.Clamp(firstRow, 0, lastRow);
+            ItemUi.TopLeft(handle, 0, (rail.rect.height - thumbHeight) * firstRow / lastRow, rail.rect.width, thumbHeight);
         }
         else
         {
-            offset = 0;
+            firstRow = 0;
             dragging = false;
         }
-        content.anchoredPosition = new Vector2(0, offset);
-        content.sizeDelta = new Vector2(Width, Pitch * Mathf.Max(VisibleRows, shown));
+        for (int i = 0; i < rows.Length; i++)
+        {
+            int index = firstRow + i;
+            bool negative = index < harmful.Count;
+            if (index >= count) rows[i].Hide();
+            else rows[i].Refresh(negative ? harmful[index] : other[index - harmful.Count], negative);
+        }
     }
 
-    private void ReadScroll(float travel, float thumbHeight)
+    private void ReadScroll(int lastRow, float thumbHeight)
     {
         if (lastInputFrame == Time.frameCount) return;
         lastInputFrame = Time.frameCount;
@@ -90,13 +89,22 @@ internal sealed class StatusEffectHud : IDisposable
         if (root.rect.Contains(point))
         {
             float wheel = ZInput.GetMouseScrollWheel();
-            if (wheel != 0) offset -= Mathf.Clamp(wheel, -3, 3) * Pitch;
+            if (wheel != 0) firstRow -= (int)Mathf.Sign(wheel) * Mathf.Clamp(Mathf.RoundToInt(Mathf.Abs(wheel)), 1, 3);
             if (point.x >= Width && ZInput.GetMouseButtonDown(0)) dragging = true;
         }
         if (!ZInput.GetMouseButton(0)) dragging = false;
         if (dragging)
-            offset = Mathf.Clamp01((-point.y - 5 - thumbHeight * 0.5f) / (rail.rect.height - thumbHeight)) * travel;
+            firstRow = Mathf.RoundToInt(Mathf.Clamp01((-point.y - 5 - thumbHeight * 0.5f)
+                / (rail.rect.height - thumbHeight)) * lastRow);
     }
+
+    private static bool IsHarmful(StatusEffect effect, int hash) =>
+        effect.m_flashIcon || hash == SEMan.s_statusEffectWet || hash == SEMan.s_statusEffectCold
+        || hash == SEMan.s_statusEffectFreezing || hash == SEMan.s_statusEffectEncumbered
+        || hash == SEMan.s_statusEffectBurning || hash == SEMan.s_statusEffectFrost
+        || hash == SEMan.s_statusEffectPoison || hash == SEMan.s_statusEffectSmoked
+        || hash == SEMan.s_statusEffectTared || hash == SEMan.s_statusEffectSpirit
+        || hash == SEMan.s_statusEffectLightning;
 
     public void Dispose()
     {
@@ -106,34 +114,41 @@ internal sealed class StatusEffectHud : IDisposable
 
     private sealed class Row
     {
-        internal readonly RectTransform Rect;
-        private readonly Image icon, state;
+        private readonly RectTransform rect;
+        private readonly Image icon, state, shadow;
         private readonly TextMeshProUGUI title, duration;
         private StatusEffect previous;
 
-        internal Row(RectTransform parent, Artwork art, TMP_FontAsset font)
+        internal Row(RectTransform parent, RectTransform shadows, Artwork art, TMP_FontAsset font, int index)
         {
-            Rect = ItemUi.Rect(parent, "Effect");
-            var shadow = HudStyle.Shadow(Rect, art, 0.92f);
-            HudStyle.Center(shadow.rectTransform, 0, 0, Width + 64, 63);
-            state = ItemUi.Image(Rect, "State");
+            rect = ItemUi.Rect(parent, "Effect");
+            ItemUi.TopLeft(rect, 0, index * Pitch, Width, Height);
+            shadow = HudStyle.Shadow(shadows, art, 0.77f);
+            ItemUi.TopLeft(shadow.rectTransform, -78, index * Pitch - 20, Width + 156, Height + 40);
+            state = ItemUi.Image(rect, "State");
             ItemUi.TopLeft(state.rectTransform, 4, 8, 2, 16);
-            icon = ItemUi.Image(Rect, "Icon");
+            icon = ItemUi.Image(rect, "Icon");
             icon.preserveAspect = true;
             ItemUi.TopLeft(icon.rectTransform, 11, 5, 22, 22);
-            title = ItemUi.Text(Rect, "Name", font, 14, ItemUi.Ink);
+            title = ItemUi.Text(rect, "Name", font, 14, ItemUi.Ink);
             title.overflowMode = TextOverflowModes.Ellipsis;
             title.textWrappingMode = TextWrappingModes.NoWrap;
             title.alignment = TextAlignmentOptions.MidlineLeft;
-            duration = ItemUi.Text(Rect, "Remaining", font, 13, ItemUi.Accent);
+            duration = ItemUi.Text(rect, "Remaining", font, 13, ItemUi.Accent);
             duration.alignment = TextAlignmentOptions.MidlineRight;
             duration.textWrappingMode = TextWrappingModes.NoWrap;
         }
 
-        internal void Refresh(StatusEffect effect, int index)
+        internal void Hide()
         {
-            if (!Rect.gameObject.activeSelf) Rect.gameObject.SetActive(true);
-            ItemUi.TopLeft(Rect, 0, index * Pitch, Width, Height);
+            rect.gameObject.SetActive(false);
+            shadow.enabled = false;
+        }
+
+        internal void Refresh(StatusEffect effect, bool harmful)
+        {
+            if (!rect.gameObject.activeSelf) rect.gameObject.SetActive(true);
+            shadow.enabled = true;
             if (previous != effect)
             {
                 previous = effect;
@@ -143,13 +158,6 @@ internal sealed class StatusEffectHud : IDisposable
             icon.enabled = icon.sprite;
             bool warning = effect.m_flashIcon;
             icon.color = warning ? Color.Lerp(Color.white, ItemUi.Warning, 0.5f + 0.5f * Mathf.Sin(Time.time * 10)) : Color.white;
-            int hash = effect.NameHash();
-            bool harmful = warning || hash == SEMan.s_statusEffectWet || hash == SEMan.s_statusEffectCold
-                || hash == SEMan.s_statusEffectFreezing || hash == SEMan.s_statusEffectEncumbered
-                || hash == SEMan.s_statusEffectBurning || hash == SEMan.s_statusEffectFrost
-                || hash == SEMan.s_statusEffectPoison || hash == SEMan.s_statusEffectSmoked
-                || hash == SEMan.s_statusEffectTared || hash == SEMan.s_statusEffectSpirit
-                || hash == SEMan.s_statusEffectLightning;
             state.color = harmful ? ItemUi.Warning : effect.m_cooldownIcon ? ItemUi.Muted : ItemUi.Accent;
             string time = effect.GetIconText();
             if (duration.text != time) duration.text = time;
