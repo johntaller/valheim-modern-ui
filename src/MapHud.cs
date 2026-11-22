@@ -20,6 +20,7 @@ internal sealed class MapHud : IDisposable
     private readonly Image leftOrnament, rightOrnament;
     private readonly List<Image> mapPins = new();
     private readonly Compass compass;
+    private readonly RestHud rest;
     private HiddenGraphics nativeMap;
     private Minimap owner;
     private Image windSource, shipSource;
@@ -66,8 +67,8 @@ internal sealed class MapHud : IDisposable
         caption.anchorMin = caption.anchorMax = new Vector2(0.5f, 0);
         caption.pivot = new Vector2(0.5f, 1);
         caption.anchoredPosition = new Vector2(0, -7);
-        var shade = HudStyle.Shadow(caption, art, 0.93f);
-        ItemUi.Stretch(shade.rectTransform, new Vector2(-30, -30), new Vector2(30, 26));
+        var shade = HudStyle.Shadow(caption, art, 0.79f);
+        ItemUi.Stretch(shade.rectTransform, new Vector2(-68, -39), new Vector2(68, 34));
         leftOrnament = ItemUi.Image(caption, "LeftOrnament", art["map-ornament"]);
         rightOrnament = ItemUi.Image(caption, "RightOrnament", art["map-ornament"]);
         leftOrnament.color = rightOrnament.color = ItemUi.Accent;
@@ -78,10 +79,11 @@ internal sealed class MapHud : IDisposable
         biome.textWrappingMode = TextWrappingModes.NoWrap;
         clock = ItemUi.Text(caption, "WorldTime", displayFont, 17, ItemUi.Accent);
         clock.alignment = TextAlignmentOptions.Center;
+        rest = new RestHud(caption, art, displayFont);
         compass = new Compass(root, art, font, displayFont);
     }
 
-    internal void Refresh(Player player, bool visible)
+    internal void Refresh(Player player, bool visible, float highlightDistance)
     {
         var map = Minimap.instance;
         if (map != owner)
@@ -117,8 +119,9 @@ internal sealed class MapHud : IDisposable
         if (mapVisible)
         {
             RefreshMap(map, pins, size);
+            rest.Refresh(player);
             compass.Refresh(player, pins, VisibleTypes?.GetValue(map) as bool[],
-                SharedFade?.GetValue(map) is float fade ? fade : 0);
+                SharedFade?.GetValue(map) is float fade ? fade : 0, highlightDistance);
         }
         else
         {

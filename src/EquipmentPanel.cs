@@ -11,6 +11,7 @@ internal sealed class EquipmentPanel
     internal const float Width = 244;
     internal const float Gap = 10;
     private const float Padding = 14, CellSize = 52, ColumnWidth = 104, ModifiersTop = 364;
+    private const float BaseHeight = 355, MaxModifiersHeight = 180;
     private const float ContentWidth = Width - Padding * 2;
     private const float ModifiersWidth = ContentWidth - 9;
     private static readonly string[] Labels = { "Helmet", "Chest", "Legs", "Cape", "Accessory", "Trinket" };
@@ -30,12 +31,13 @@ internal sealed class EquipmentPanel
     private readonly Scrollbar modifiersScrollbar;
     private readonly TextMeshProUGUI total, modifiers;
     private readonly List<HitData.DamageModPair> damageLines = new();
-    private float nextStats, lastArmor = float.NaN, backpackHeight;
+    private float nextStats, lastArmor = float.NaN;
 
     internal EquipmentPanel(RectTransform parent, Artwork art, TMP_FontAsset font)
     {
         bool russian = Localization.instance.GetSelectedLanguage() == "Russian";
         Rect = ItemUi.Image(parent, "NewUI_Equipment", art["panel"]).rectTransform;
+        Rect.sizeDelta = new Vector2(Width, BaseHeight);
         var title = Label(Rect, "Title", font, 18, ItemUi.Ink, russian ? "Экипировка" : "Equipment");
         title.fontStyle = FontStyles.Bold;
         ItemUi.TopLeft(title.rectTransform, Padding, 10, ContentWidth, 25);
@@ -113,24 +115,10 @@ internal sealed class EquipmentPanel
         return label;
     }
 
-    internal void Align(RectTransform backpack, float height)
+    internal void Align(RectTransform backpack)
     {
         ItemUi.TopLeft(Rect, backpack.anchoredPosition.x + backpack.rect.width + Gap,
-            -backpack.anchoredPosition.y, Width, Mathf.Max(height, 355));
-        backpackHeight = height;
-        ResizeModifiers(height);
-    }
-
-    private void ResizeModifiers(float backpackHeight)
-    {
-        bool show = modifiersPanel.gameObject.activeSelf;
-        float panelHeight = Mathf.Max(backpackHeight, show ? 419 : 355);
-        Rect.sizeDelta = new Vector2(Width, panelHeight);
-        if (!show) return;
-        float modifiersHeight = panelHeight - ModifiersTop - Padding;
-        ItemUi.TopLeft(viewport, Padding, ModifiersTop, ModifiersWidth, modifiersHeight);
-        ItemUi.TopLeft((RectTransform)modifiersScrollbar.transform, Width - Padding - 5, ModifiersTop, 5, modifiersHeight);
-        SizeModifiers();
+            -backpack.anchoredPosition.y, Width, Rect.sizeDelta.y);
     }
 
     internal void Refresh(Player player, int row)
@@ -163,16 +151,20 @@ internal sealed class EquipmentPanel
         foreach (var type in DamageTypes)
             damageLines.Add(new HitData.DamageModPair { m_type = type, m_modifier = damage.GetModifier(type) });
         string text = SE_Stats.GetDamageModifiersTooltipString(damageLines).Trim();
-        bool show = text.Length > 0;
-        if (modifiersPanel.gameObject.activeSelf != show)
+        bool wasVisible = modifiersPanel.gameObject.activeSelf;
+        if (text.Length == 0)
         {
-            modifiersPanel.gameObject.SetActive(show);
-            ResizeModifiers(backpackHeight);
+            if (wasVisible)
+            {
+                modifiersPanel.gameObject.SetActive(false);
+                Rect.sizeDelta = new Vector2(Width, BaseHeight);
+            }
+            return;
         }
-        if (!show) return;
         text = Localization.instance.Localize(text.Replace("$inventory_dmgmod: ", "")
             .Replace(" VS ", " · ").Replace("color=orange", "color=#E1BB74"));
-        if (modifiers.text == text) return;
+        if (wasVisible && modifiers.text == text) return;
+        if (!wasVisible) modifiersPanel.gameObject.SetActive(true);
         modifiers.text = text;
         SizeModifiers();
         scroll.verticalNormalizedPosition = 1;
@@ -180,9 +172,13 @@ internal sealed class EquipmentPanel
 
     private void SizeModifiers()
     {
-        float height = modifiers.GetPreferredValues(modifiers.text, ModifiersWidth, Mathf.Infinity).y + 2;
-        ItemUi.TopLeft(content, 0, 0, ModifiersWidth, Mathf.Max(height, viewport.rect.height));
-        scroll.vertical = height > viewport.rect.height + 1;
+        float height = Mathf.Ceil(modifiers.GetPreferredValues(modifiers.text, ModifiersWidth, Mathf.Infinity).y) + 2;
+        float visibleHeight = Mathf.Min(height, MaxModifiersHeight);
+        Rect.sizeDelta = new Vector2(Width, ModifiersTop + visibleHeight + Padding);
+        ItemUi.TopLeft(viewport, Padding, ModifiersTop, ModifiersWidth, visibleHeight);
+        ItemUi.TopLeft((RectTransform)modifiersScrollbar.transform, Width - Padding - 5, ModifiersTop, 5, visibleHeight);
+        ItemUi.TopLeft(content, 0, 0, ModifiersWidth, height);
+        scroll.vertical = height > visibleHeight;
         if (modifiersScrollbar.gameObject.activeSelf != scroll.vertical)
             modifiersScrollbar.gameObject.SetActive(scroll.vertical);
         modifiersSurface.raycastTarget = scroll.vertical;
