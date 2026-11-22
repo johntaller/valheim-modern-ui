@@ -15,6 +15,8 @@ internal sealed class SettingsMenu : IDisposable
         AccessTools.FieldRefAccess<Settings, Button>("m_backButton");
     private static readonly AccessTools.FieldRef<Settings, Button> NativeApply =
         AccessTools.FieldRefAccess<Settings, Button>("m_okButton");
+    private static readonly AccessTools.FieldRef<Settings, TabHandler> NativeTabs =
+        AccessTools.FieldRefAccess<Settings, TabHandler>("m_tabHandler");
 
     private readonly MenuStyle style;
     private readonly Artwork art;
@@ -34,7 +36,7 @@ internal sealed class SettingsMenu : IDisposable
         Owner = settings;
         this.art = art;
         style = new MenuStyle(art);
-        handler = settings.GetComponentInChildren<TabHandler>(true);
+        handler = NativeTabs(settings);
         var native = NativePanel(settings);
         var parent = (RectTransform)(native ? native.transform : handler.transform);
         var firstTab = handler.m_tabs.Find(tab => tab.m_button)?.m_button;

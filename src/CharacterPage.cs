@@ -10,6 +10,9 @@ internal sealed class CharacterPage
     private readonly TextMeshProUGUI[] foods = new TextMeshProUGUI[3], times = new TextMeshProUGUI[3];
     private readonly Image[] icons = new Image[3], fills = new Image[3];
     private readonly Image powerIcon;
+    private Toggle pvp;
+    private RectTransform pvpVisual;
+    private Image pvpTrack, pvpKnob;
     private float nextUpdate;
 
     internal RectTransform Root { get; }
@@ -111,6 +114,52 @@ internal sealed class CharacterPage
         if (effect) powerIcon.sprite = effect.m_icon;
         power.text = effect ? localize.Localize(effect.m_name) + "  ·  " + (remaining > 0
             ? TimeLeft(remaining) : MenuStyle.Translate("Ready", "Готово")) : "—";
+
+        if (pvp)
+        {
+            pvpTrack.color = pvp.isOn ? new Color32(110, 181, 135, 255) : MenuStyle.Edge;
+            ItemUi.TopLeft(pvpKnob.rectTransform, pvp.isOn ? 18 : 2, 2, 11, 11);
+        }
+    }
+
+    internal void AttachPvp(Toggle control, MenuStyle style, Artwork art, TMP_FontAsset font)
+    {
+        pvp = control;
+        var rect = (RectTransform)control.transform;
+        style.Remember(new MenuRect(rect).Restore);
+        var originalGraphic = control.graphic;
+        var originalTarget = control.targetGraphic;
+        var colors = control.colors;
+        style.Remember(() =>
+        {
+            if (!control) return;
+            control.targetGraphic = originalTarget;
+            control.graphic = originalGraphic;
+            control.colors = colors;
+            control.SetIsOnWithoutNotify(control.isOn);
+        });
+        rect.SetParent(Root, false);
+        rect.localScale = Vector3.one;
+        rect.localRotation = Quaternion.identity;
+        rect.anchorMin = rect.anchorMax = rect.pivot = Vector2.zero;
+        rect.anchoredPosition = new Vector2(10, 6);
+        rect.sizeDelta = new Vector2(143, 32);
+        foreach (Transform child in rect) style.Hide(child.gameObject);
+
+        var visual = ItemUi.Image(rect, "PlayerCombat", art["button"]);
+        pvpVisual = visual.rectTransform;
+        visual.raycastTarget = true;
+        control.targetGraphic = visual;
+        control.graphic = null;
+        control.colors = MenuStyle.Palette;
+        ItemUi.Stretch(pvpVisual, Vector2.zero, Vector2.zero);
+        var label = MenuStyle.Label(pvpVisual, "Label", font, "PvP", 15, ItemUi.Ink);
+        CraftingMenu.Put(label.rectTransform, 12, 1, 45, 29);
+        pvpTrack = ItemUi.Image(pvpVisual, "SwitchTrack", art["meter-fill"]);
+        ItemUi.TopLeft(pvpTrack.rectTransform, 103, 8, 31, 15);
+        pvpKnob = ItemUi.Image(pvpTrack.transform, "SwitchKnob", art["meter-fill"]);
+        pvpKnob.color = ItemUi.Ink;
+        style.Remember(() => ItemUi.Destroy(pvpVisual));
     }
 
     private static string Pair(float value, float max) => $"{value:0.#} / {max:0.#}";

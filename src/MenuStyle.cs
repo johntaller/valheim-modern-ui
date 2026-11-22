@@ -106,14 +106,16 @@ internal sealed class MenuStyle : IDisposable
         fadeDuration = 0.08f
     };
 
-    internal void Scan(Transform root)
+    internal void Scan(Transform root, Transform excluded = null)
     {
         root.GetComponentsInChildren(false, controls);
-        foreach (var control in controls) Control(control);
+        foreach (var control in controls)
+            if (!excluded || !control.transform.IsChildOf(excluded)) Control(control);
         root.GetComponentsInChildren(false, images);
         foreach (var image in images)
         {
-            if (!image || !image.sprite || visited.Contains(image) || image.sprite.name.StartsWith("ValheimNewUI/")) continue;
+            if (!image || !image.sprite || excluded && image.transform.IsChildOf(excluded) ||
+                visited.Contains(image) || image.sprite.name.StartsWith("ValheimNewUI/")) continue;
             string source = image.sprite.name.ToLowerInvariant();
             string role = source switch
             {

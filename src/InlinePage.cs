@@ -1,3 +1,5 @@
+using System;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -8,17 +10,19 @@ internal sealed class InlinePage
     private readonly RectTransform page, target;
     private readonly MenuStyle style;
     private readonly Vector2 originalSize;
+    private readonly string[] titles;
     private Rect footprint;
     private bool fitted;
     private Vector2 lastSize;
 
     internal bool Active => page && page.gameObject.activeSelf;
 
-    internal InlinePage(Transform native, RectTransform target, MenuStyle style)
+    internal InlinePage(Transform native, RectTransform target, MenuStyle style, params string[] titles)
     {
         page = (RectTransform)native;
         this.target = target;
         this.style = style;
+        this.titles = titles;
         var placement = new MenuRect(page);
         style.Remember(placement.Restore);
         originalSize = new Vector2(Mathf.Max(1, page.rect.width), Mathf.Max(1, page.rect.height));
@@ -80,6 +84,25 @@ internal sealed class InlinePage
         {
             const float pad = 6;
             footprint = Rect.MinMaxRect(bounds.min.x - pad, bounds.min.y - pad, bounds.max.x + pad, bounds.max.y + pad);
+        }
+        if (titles.Length == 0) return;
+        foreach (var image in page.GetComponentsInChildren<Image>(false))
+        {
+            if (image == rootImage || !image.sprite || image.GetComponentInParent<ScrollRect>() ||
+                image.GetComponentInParent<Selectable>()) continue;
+            var rect = image.rectTransform.rect;
+            if (rect.width >= footprint.width * 0.9f && rect.height >= footprint.height * 0.9f)
+                style.Hide(image);
+        }
+        foreach (var label in page.GetComponentsInChildren<TMP_Text>(false))
+        {
+            if (label.GetComponentInParent<ScrollRect>() || label.GetComponentInParent<Selectable>()) continue;
+            foreach (var title in titles)
+            {
+                if (!string.Equals(label.text.Trim(), title, StringComparison.CurrentCultureIgnoreCase)) continue;
+                style.Hide(label);
+                break;
+            }
         }
     }
 }

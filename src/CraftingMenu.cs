@@ -16,6 +16,8 @@ internal sealed class CraftingMenu : IDisposable
     private enum Category { All, Weapons, Armor, Tools, Food, Materials, Other }
     private static readonly Action<InventoryGui, bool> RebuildRecipes =
         AccessTools.MethodDelegate<Action<InventoryGui, bool>>(AccessTools.Method(typeof(InventoryGui), "UpdateCraftingPanel"));
+    private static readonly AccessTools.FieldRef<InventoryGui, float> RecipeBaseHeight =
+        AccessTools.FieldRefAccess<InventoryGui, float>("m_recipeListBaseSize");
     private static CraftingMenu current;
 
     internal readonly InventoryGui Gui;
@@ -23,9 +25,12 @@ internal sealed class CraftingMenu : IDisposable
     private readonly TMP_FontAsset font;
     private readonly MenuStyle style;
     private readonly RectTransform tabs, content, filters;
+    private readonly CanvasGroup tabsGroup;
     private readonly Input search;
     private readonly RectTransform choices;
     private readonly ScrollRect recipeScroll;
+    private readonly CanvasGroup scrollbarGroup;
+    private readonly RectTransform scrollViewport;
     private readonly TextMeshProUGUI categoryLabel, empty, title, identity;
     private readonly Button categoryButton;
     private readonly CharacterPage sheet;
@@ -33,6 +38,7 @@ internal sealed class CraftingMenu : IDisposable
     private readonly Button[] buttons;
     private readonly List<RectTransform> recipeRows = new();
     private readonly float spacing;
+    private readonly float recipeBaseHeight;
     private readonly GameObject originalDefault;
     private Page selected;
     private Category category;
@@ -48,6 +54,7 @@ internal sealed class CraftingMenu : IDisposable
         this.font = font;
         style = new MenuStyle(art);
         spacing = gui.m_recipeListSpace;
+        recipeBaseHeight = RecipeBaseHeight(gui);
         gui.m_recipeListSpace = Mathf.Max(36, spacing);
         recipeScroll = gui.m_recipeListRoot.GetComponentInParent<ScrollRect>(true);
 
@@ -70,26 +77,20 @@ internal sealed class CraftingMenu : IDisposable
         ItemUi.Stretch(body, new Vector2(16, 14), new Vector2(-16, -65));
         sheet = new CharacterPage(body, art, font);
         pages = new InlinePage[6];
-        pages[(int)Page.Skills] = new InlinePage(gui.m_skillsDialog.transform, body, style);
-        pages[(int)Page.Lore] = new InlinePage(gui.m_textsDialog.transform, body, style);
-        pages[(int)Page.Trophies] = new InlinePage(gui.m_trophiesPanel.transform, body, style);
+        pages[(int)Page.Skills] = new InlinePage(gui.m_skillsDialog.transform, body, style, PageTitle(Page.Skills));
+        pages[(int)Page.Lore] = new InlinePage(gui.m_textsDialog.transform, body, style, PageTitle(Page.Lore),
+            MenuStyle.Translate("Texts", "Тексты"));
+        pages[(int)Page.Trophies] = new InlinePage(gui.m_trophiesPanel.transform, body, style, PageTitle(Page.Trophies));
         if (gui.m_achievementsPanel)
-            pages[(int)Page.Achievements] = new InlinePage(gui.m_achievementsPanel.transform, body, style);
+            pages[(int)Page.Achievements] = new InlinePage(gui.m_achievementsPanel.transform, body, style,
+                PageTitle(Page.Achievements));
 
         // Preserve the real PvP toggle and its native restrictions.
-        if (gui.m_pvp)
-        {
-            var pvp = (RectTransform)gui.m_pvp.transform;
-            style.Remember(new MenuRect(pvp).Restore);
-            pvp.SetParent(sheet.Root, false);
-            pvp.localScale = Vector3.one;
-            pvp.localRotation = Quaternion.identity;
-            pvp.anchorMin = pvp.anchorMax = pvp.pivot = new Vector2(0, 0);
-            pvp.anchoredPosition = new Vector2(14, 9);
-            pvp.sizeDelta = new Vector2(110, 27);
-        }
+        if (gui.m_pvp) sheet.AttachPvp(gui.m_pvp, style, art, font);
 
         tabs = ItemUi.Rect(gui.m_info, "NewUI_InventoryTabs");
+        tabsGroup = tabs.gameObject.AddComponent<CanvasGroup>();
+        tabsGroup.ignoreParentGroups = true;
         ItemUi.Stretch(tabs, Vector2.zero, Vector2.zero);
         foreach (Transform child in gui.m_info)
             if (child != tabs) style.Hide(child.gameObject);
@@ -122,11 +123,29 @@ internal sealed class CraftingMenu : IDisposable
 
         content.gameObject.SetActive(false);
 
-        RectTransform viewport = recipeScroll ? (RectTransform)recipeScroll.transform : (RectTransform)gui.m_recipeListRoot.parent;
-        filters = ItemUi.Rect(viewport.parent, "NewUI_RecipeFilters");
-        new MenuRect(viewport).ApplyTo(filters);
-        style.Remember(new MenuRect(viewport).Restore);
-        viewport.offsetMax -= new Vector2(0, 77);
+        scrollViewport = recipeScroll ? (RectTransform)recipeScroll.transform : (RectTransform)gui.m_recipeListRoot.parent;
+        filters = ItemUi.Rect(scrollViewport.parent, "NewUI_RecipeFilters");
+        new MenuRect(scrollViewport).ApplyTo(filters);
+        style.Remember(new MenuRect(scrollViewport).Restore);
+        scrollViewport.offsetMax -= new Vector2(0, 77);
+        if (gui.m_recipeListScroll)
+        {
+            var bar = gui.m_recipeListScroll;
+            scrollbarGroup = bar.GetComponent<CanvasGroup>();
+            if (scrollbarGroup) style.Remember(new ScrollbarState(scrollbarGroup).Restore);
+            else
+            {
+                scrollbarGroup = bar.gameObject.AddComponent<CanvasGroup>();
+                style.Remember(() => { if (scrollbarGroup) UnityEngine.Object.Destroy(scrollbarGroup); });
+            }
+            if (bar.targetGraphic is Image grip) style.Sprite(grip, "meter-fill", ItemUi.Muted, force: true);
+            if (bar.GetComponent<Image>() is Image track && track != bar.targetGraphic)
+                style.Sprite(track, "meter-fill", MenuStyle.Surface, force: true);
+            var barRect = (RectTransform)bar.transform;
+            style.Remember(new MenuRect(barRect).Restore);
+            barRect.offsetMin += new Vector2(barRect.rect.width * 0.26f, 0);
+            barRect.offsetMax -= new Vector2(barRect.rect.width * 0.26f, 77);
+        }
         search = MakeSearch(filters);
         categoryButton = MenuStyle.Button(filters, art, font, CategoryTitle(Category.All), ShowCategories, out categoryLabel);
         Put((RectTransform)categoryButton.transform, 0, 37, 0, 29);
@@ -256,12 +275,15 @@ internal sealed class CraftingMenu : IDisposable
     {
         bool open = InventoryGui.IsVisible() && player && !player.IsDead() &&
             Gui.GetComponent<Animator>().GetBool("visible");
+        if (tabs.gameObject.activeSelf != open) tabs.gameObject.SetActive(open);
         if (!open)
         {
             if (wasOpen) Open(Page.Craft);
             wasOpen = false;
             return;
         }
+        tabsGroup.interactable = tabsGroup.blocksRaycasts = !Menu.IsVisible() && !Console.IsVisible() &&
+            !Gui.m_variantDialog.gameObject.activeSelf && !Gui.m_splitDialog.IsActive;
         if (!wasOpen)
         {
             wasOpen = true;
@@ -277,14 +299,22 @@ internal sealed class CraftingMenu : IDisposable
         if (pendingFilter && selected == Page.Craft)
         {
             pendingFilter = false;
+            RecipeBaseHeight(Gui) = Mathf.Max(1, scrollViewport.rect.height);
             RebuildRecipes(Gui, false);
             if (recipeScroll) recipeScroll.verticalNormalizedPosition = 1;
+        }
+        if (scrollbarGroup)
+        {
+            bool overflow = count * Gui.m_recipeListSpace > scrollViewport.rect.height + 1;
+            scrollbarGroup.alpha = overflow ? 1 : 0;
+            scrollbarGroup.blocksRaycasts = overflow;
+            scrollbarGroup.interactable = overflow;
         }
         if (Time.unscaledTime >= nextStyleScan)
         {
             nextStyleScan = Time.unscaledTime + 0.15f;
             style.Scan(content);
-            style.Scan(Gui.m_crafting);
+            style.Scan(Gui.m_crafting, Gui.m_recipeListRoot);
             if (selected == Page.Craft) StyleRecipeRows();
         }
         bool noRecipes = count == 0;
@@ -303,6 +333,18 @@ internal sealed class CraftingMenu : IDisposable
             if (!row.name.StartsWith(Gui.m_recipeElementPrefab.name, StringComparison.Ordinal) || recipeRows.Contains(row)) continue;
             recipeRows.Add(row);
             row.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, Gui.m_recipeListSpace - 2);
+            foreach (string face in new[] { "bkg", "selected" })
+            {
+                var image = row.Find(face)?.GetComponent<Image>();
+                if (!image) continue;
+                image.sprite = art[face == "selected" ? "selected" : "slot"];
+                image.type = Image.Type.Sliced;
+            }
+            if (row.GetComponent<Button>() is Button button)
+            {
+                button.transition = Selectable.Transition.ColorTint;
+                button.colors = MenuStyle.Palette;
+            }
             var item = row.Find("icon")?.GetComponent<Image>();
             if (item)
             {
@@ -381,6 +423,7 @@ internal sealed class CraftingMenu : IDisposable
             CloseNativePage();
             Gui.m_crafting.gameObject.SetActive(true);
             Gui.m_recipeListSpace = spacing;
+            RecipeBaseHeight(Gui) = recipeBaseHeight;
             if (Gui.m_uiGroups.Length > 2 && Gui.m_uiGroups[2]) Gui.m_uiGroups[2].m_defaultElement = originalDefault;
         }
         style.Dispose();
@@ -403,7 +446,9 @@ internal sealed class CraftingMenu : IDisposable
         private static void Postfix(InventoryGui __instance, System.Collections.ICollection ___m_availableRecipes)
         {
             var menu = current;
-            if (menu?.Gui == __instance) menu.count = ___m_availableRecipes.Count;
+            if (menu?.Gui != __instance) return;
+            menu.count = ___m_availableRecipes.Count;
+            menu.StyleRecipeRows();
         }
     }
 
@@ -418,27 +463,28 @@ internal sealed class CraftingMenu : IDisposable
             ZInput.ResetButtonStatus("Use");
         }
 
-        private static void Postfix(InventoryGui __instance)
+    }
+
+    private readonly struct ScrollbarState
+    {
+        private readonly CanvasGroup group;
+        private readonly float alpha;
+        private readonly bool interactable, raycasts;
+
+        internal ScrollbarState(CanvasGroup group)
         {
-            var menu = current;
-            if (menu?.Gui != __instance || !menu.wasOpen || !InventoryGui.IsVisible() || Menu.IsVisible() ||
-                Console.IsVisible() || Minimap.IsOpen() || __instance.m_variantDialog.gameObject.activeSelf ||
-                __instance.m_splitDialog.IsActive) return;
-            bool command = ZInput.GetKey(KeyCode.LeftControl) || ZInput.GetKey(KeyCode.RightControl) ||
-                ZInput.GetKey(KeyCode.LeftCommand) || ZInput.GetKey(KeyCode.RightCommand);
-            if (command && ZInput.GetKeyDown(KeyCode.F))
-            {
-                menu.Open(Page.Craft);
-                menu.search.ActivateInputField();
-                return;
-            }
-            if (menu.search.isFocused || !(ZInput.GetKey(KeyCode.LeftAlt) || ZInput.GetKey(KeyCode.RightAlt))) return;
-            int direction = ZInput.GetKeyDown(KeyCode.RightArrow) ? 1 : ZInput.GetKeyDown(KeyCode.LeftArrow) ? -1 : 0;
-            if (direction == 0) return;
-            int length = menu.buttons.Length;
-            int next = ((int)menu.selected + direction + length) % length;
-            if (!menu.buttons[next].interactable) next = (next + direction + length) % length;
-            menu.Open((Page)next);
+            this.group = group;
+            alpha = group.alpha;
+            interactable = group.interactable;
+            raycasts = group.blocksRaycasts;
+        }
+
+        internal void Restore()
+        {
+            if (!group) return;
+            group.alpha = alpha;
+            group.interactable = interactable;
+            group.blocksRaycasts = raycasts;
         }
     }
 }

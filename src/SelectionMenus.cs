@@ -14,6 +14,8 @@ internal sealed class SelectionMenus : IDisposable
     private readonly HashSet<RectTransform> worldRows = new();
     private RectTransform characterCard, worldFrame, worldBody;
     private ScrollRect worldScroll;
+    private Button worldBack;
+    private MenuRect worldBackOriginal;
     private bool characterReady, worldReady;
     private float nextScan;
 
@@ -35,6 +37,11 @@ internal sealed class SelectionMenus : IDisposable
         bool worlds = Owner.m_worldListPanel && Owner.m_worldListPanel.activeInHierarchy;
         if (characters && !characterReady) MakeCharacterCard();
         if (worlds && !worldReady) MakeWorldScreen();
+        if (worldReady && worldBack)
+        {
+            if (worlds && worldBack.transform.parent != worldFrame) PlaceFooter(worldBack, 0.02f, 0.16f);
+            else if (!worlds && worldBack.transform.parent == worldFrame) worldBackOriginal.Restore();
+        }
         if (Time.unscaledTime < nextScan) return;
         nextScan = Time.unscaledTime + 0.16f;
 
@@ -46,7 +53,7 @@ internal sealed class SelectionMenus : IDisposable
         if (worlds)
         {
             RefreshWorldRows();
-            style.Scan(Owner.m_worldListPanel.transform);
+            style.Scan(Owner.m_startGamePanel.transform);
         }
     }
 
@@ -55,7 +62,7 @@ internal sealed class SelectionMenus : IDisposable
         var panel = (RectTransform)Owner.m_selectCharacterPanel.transform;
         var font = Owner.m_csName.font;
         characterCard = ItemUi.Image(panel, "NewUI_CharacterSelection", art["panel"]).rectTransform;
-        CenterBottom(characterCard, 0, 18, 506, 206);
+        CenterBottom(characterCard, 0, 96, 506, 198);
         characterCard.GetComponent<Image>().raycastTarget = true;
         characterCard.SetAsFirstSibling();
         HideLargeChrome(panel, characterCard);
@@ -75,7 +82,7 @@ internal sealed class SelectionMenus : IDisposable
         if (source)
         {
             Move(source.rectTransform, characterCard);
-            CraftingMenu.Put(source.rectTransform, 100, 82, 100, 26);
+            CraftingMenu.Put(source.rectTransform, 190, 82, 66, 26);
             style.Text(source, ItemUi.Muted, 15);
         }
 
@@ -109,6 +116,13 @@ internal sealed class SelectionMenus : IDisposable
         var font = Owner.m_worldStart.GetComponentInChildren<TMP_Text>(true).font;
         var newWorld = FindButton(panel, "OnWorldNew");
         var manage = FindButton(panel, "OnManageSaves");
+        worldBack = FindButton(Owner.m_startGamePanel.transform, "OnStartGameBack");
+        if (worldBack)
+        {
+            worldBackOriginal = new MenuRect((RectTransform)worldBack.transform);
+            style.Remember(worldBackOriginal.Restore);
+            StyleButton(worldBack);
+        }
 
         worldFrame = ItemUi.Image(panel, "NewUI_WorldSelection", art["panel"]).rectTransform;
         ItemUi.Stretch(worldFrame, Vector2.zero, Vector2.zero);
@@ -116,7 +130,7 @@ internal sealed class SelectionMenus : IDisposable
         worldFrame.SetAsFirstSibling();
         HideLargeChrome(panel, worldFrame);
 
-        const float railWidth = 246;
+        const float railWidth = 192;
         var rail = ItemUi.Image(worldFrame, "WorldOptions", art["slot"]).rectTransform;
         rail.anchorMin = Vector2.right;
         rail.anchorMax = Vector2.one;
@@ -143,7 +157,35 @@ internal sealed class SelectionMenus : IDisposable
         CraftingMenu.Put(line.rectTransform, 11, 68, 11, 1);
 
         var scrollRect = Move((RectTransform)worldScroll.transform, worldBody);
-        ItemUi.Stretch(scrollRect, new Vector2(9, 10), new Vector2(-9, -74));
+        ItemUi.Stretch(scrollRect, new Vector2(9, 10), new Vector2(-19, -74));
+        var viewport = worldScroll.viewport;
+        if (viewport && viewport != scrollRect)
+        {
+            style.Remember(new MenuRect(viewport).Restore);
+            ItemUi.Stretch(viewport, Vector2.zero, Vector2.zero);
+        }
+        style.Remember(new MenuRect(Owner.m_worldListRoot).Restore);
+        StretchHorizontally(Owner.m_worldListRoot);
+        var scrollbar = worldScroll.verticalScrollbar;
+        if (!scrollbar)
+        {
+            foreach (var candidate in panel.GetComponentsInChildren<Scrollbar>(true))
+            {
+                if (candidate.direction is Scrollbar.Direction.BottomToTop or Scrollbar.Direction.TopToBottom)
+                {
+                    scrollbar = candidate;
+                    break;
+                }
+            }
+        }
+        if (scrollbar)
+        {
+            var bar = Move((RectTransform)scrollbar.transform, worldBody);
+            bar.anchorMin = Vector2.right;
+            bar.anchorMax = Vector2.one;
+            bar.offsetMin = new Vector2(-15, 12);
+            bar.offsetMax = new Vector2(-7, -74);
+        }
 
         PositionOption(Owner.m_openServerToggle, 47);
         PositionOption(Owner.m_publicServerToggle, 87);
@@ -151,9 +193,18 @@ internal sealed class SelectionMenus : IDisposable
         PositionOption(Owner.m_samePlatformOnlyToggleWorldPanel, 167);
         var password = Owner.m_serverPassword ? Owner.m_serverPassword.transform as RectTransform : null;
         if (password && password.IsChildOf(panel))
-            CraftingMenu.Put(Move(password, rail), 12, 215, 13, 35);
+        {
+            foreach (var label in panel.GetComponentsInChildren<TMP_Text>(true))
+            {
+                if (label.transform.IsChildOf(password) || !IsHeading(label, "Server Password", "$menu_password")) continue;
+                CraftingMenu.Put(Move(label.rectTransform, rail), 12, 204, 12, 23);
+                style.Text(label, ItemUi.Muted, 14);
+            }
+            CraftingMenu.Put(Move(password, rail), 12, 231, 13, 35);
+            if (password.TryGetComponent<Image>(out var inputImage)) style.Sprite(inputImage, "slot", Color.white);
+        }
         if (Owner.m_passwordError && Owner.m_passwordError.transform.IsChildOf(panel))
-            CraftingMenu.Put(Move(Owner.m_passwordError.rectTransform, rail), 12, 256, 12, 54);
+            CraftingMenu.Put(Move(Owner.m_passwordError.rectTransform, rail), 12, 272, 12, 54);
 
         if (Owner.m_serverOptionsButton && Owner.m_serverOptionsButton.transform.IsChildOf(panel))
         {
@@ -165,16 +216,14 @@ internal sealed class SelectionMenus : IDisposable
             StyleButton(Owner.m_serverOptionsButton);
         }
 
-        PlaceWorldButton(newWorld, 13, 111);
-        PlaceWorldButton(Owner.m_worldRemove, 132, 111);
-        PlaceWorldButton(manage, 251, 148);
-        if (Owner.m_worldStart && Owner.m_worldStart.transform.IsChildOf(panel))
+        SetupFooter(newWorld, 0.17f, 0.30f);
+        SetupFooter(Owner.m_worldRemove, 0.31f, 0.46f);
+        SetupFooter(manage, 0.47f, 0.70f);
+        SetupFooter(Owner.m_worldStart, 0.72f, 0.98f, true);
+        foreach (var label in Owner.m_startGamePanel.GetComponentsInChildren<TMP_Text>(true))
         {
-            var start = Move((RectTransform)Owner.m_worldStart.transform, worldFrame);
-            start.anchorMin = start.anchorMax = start.pivot = Vector2.right;
-            start.sizeDelta = new Vector2(railWidth, 43);
-            start.anchoredPosition = new Vector2(-13, 11);
-            StyleButton(Owner.m_worldStart, primary: true);
+            if (!label.transform.IsChildOf(worldFrame) && IsHeading(label, "Select world", "$menu_selectworld"))
+                style.Hide(label);
         }
         if (Owner.m_worldSourceInfoPanel && Owner.m_worldSourceInfoPanel.transform.IsChildOf(panel))
             style.Scan(Owner.m_worldSourceInfoPanel.transform);
@@ -196,15 +245,26 @@ internal sealed class SelectionMenus : IDisposable
             style.Text(control.GetComponentInChildren<TMP_Text>(true), ItemUi.Ink, 15);
         }
 
-        void PlaceWorldButton(Button button, float left, float width)
+        void SetupFooter(Button button, float left, float right, bool primary = false)
         {
             if (!button || !button.transform.IsChildOf(panel)) return;
-            var rect = Move((RectTransform)button.transform, worldFrame);
-            rect.anchorMin = rect.anchorMax = rect.pivot = Vector2.zero;
-            rect.sizeDelta = new Vector2(width, 43);
-            rect.anchoredPosition = new Vector2(left, 11);
-            StyleButton(button);
+            style.Remember(new MenuRect((RectTransform)button.transform).Restore);
+            PlaceFooter(button, left, right);
+            StyleButton(button, primary);
         }
+    }
+
+    private void PlaceFooter(Button button, float left, float right)
+    {
+        var rect = (RectTransform)button.transform;
+        rect.SetParent(worldFrame, false);
+        rect.localScale = Vector3.one;
+        rect.localRotation = Quaternion.identity;
+        rect.anchorMin = new Vector2(left, 0);
+        rect.anchorMax = new Vector2(right, 0);
+        rect.pivot = Vector2.zero;
+        rect.offsetMin = new Vector2(0, 11);
+        rect.offsetMax = new Vector2(0, 54);
     }
 
     private void RefreshWorldRows()
@@ -218,6 +278,7 @@ internal sealed class SelectionMenus : IDisposable
             if (worldRows.Add(row))
             {
                 style.Remember(new MenuRect(row).Restore);
+                StretchHorizontally(row);
                 row.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, 37);
                 StyleButton(button);
                 var selected = row.Find("selected") as RectTransform;
@@ -230,6 +291,14 @@ internal sealed class SelectionMenus : IDisposable
                 FormatCell(row, "name", 0.00f, 0.44f, 16, ItemUi.Ink);
                 FormatCell(row, "seed", 0.45f, 0.67f, 14, ItemUi.Muted);
                 FormatCell(row, "modifiers", 0.68f, 0.94f, 13, ItemUi.Muted);
+                foreach (string source in new[] { "source_cloud", "source_local", "source_legacy" })
+                {
+                    if (row.Find(source) is not RectTransform icon) continue;
+                    style.Remember(new MenuRect(icon).Restore);
+                    icon.anchorMin = icon.anchorMax = icon.pivot = new Vector2(1, 0.5f);
+                    icon.sizeDelta = new Vector2(13, 13);
+                    icon.anchoredPosition = new Vector2(-6, 0);
+                }
             }
             var target = new Vector2(0, -index++ * Owner.m_worldListElementStep);
             if (target != row.anchoredPosition) row.anchoredPosition = target;
@@ -325,6 +394,15 @@ internal sealed class SelectionMenus : IDisposable
         rect.anchorMax = new Vector2(right, 1);
         rect.offsetMin = new Vector2(6, 0);
         rect.offsetMax = new Vector2(-4, 0);
+    }
+
+    private static void StretchHorizontally(RectTransform rect)
+    {
+        rect.anchorMin = new Vector2(0, rect.anchorMin.y);
+        rect.anchorMax = new Vector2(1, rect.anchorMax.y);
+        rect.pivot = new Vector2(0, rect.pivot.y);
+        rect.offsetMin = new Vector2(0, rect.offsetMin.y);
+        rect.offsetMax = new Vector2(0, rect.offsetMax.y);
     }
 
     private static void CenterBottom(RectTransform rect, float x, float y, float width, float height)

@@ -75,7 +75,8 @@ internal sealed class WorldPickupHud : IDisposable
 
         int shown = 0;
         int mask = InteractMask?.GetValue(player) is int value ? value : Physics.DefaultRaycastLayers;
-        Camera uiCamera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+        Rect viewport = camera.rect;
+        Rect area = root.rect;
         foreach (var (drop, collider) in drops)
         {
             if (!drop || drop == selected || !collider || !collider.enabled || !drop.isActiveAndEnabled
@@ -89,10 +90,11 @@ internal sealed class WorldPickupHud : IDisposable
             var point = camera.WorldToViewportPoint(world);
             if (point.z <= 0 || point.x <= 0 || point.x >= 1 || point.y <= 0 || point.y >= 1) continue;
             if (Occluded(player, collider, world, mask)) continue;
-            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(root, camera.WorldToScreenPoint(world),
-                uiCamera, out var local)) continue;
             var marker = GetMarker(shown++);
-            marker.rectTransform.localPosition = local;
+            // The world camera can render at a different pixel resolution from the HUD.
+            marker.rectTransform.localPosition = new Vector2(
+                Mathf.Lerp(area.xMin, area.xMax, viewport.x + point.x * viewport.width),
+                Mathf.Lerp(area.yMin, area.yMax, viewport.y + point.y * viewport.height));
             marker.color = new Color(1, 1, 1, alpha);
             marker.enabled = true;
         }
