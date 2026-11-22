@@ -21,6 +21,8 @@ internal sealed class InterfaceSkin : IDisposable
     private readonly WorldInteractionHud worldInteractions;
     private readonly MapHud mapHud;
     private readonly NotificationHud notifications;
+    private readonly CombatReticle combat;
+    private readonly OnlinePlayers onlinePlayers;
     private VitalsView vitals;
     private RectTransform pausePlate;
     private bool pauseWasOpen;
@@ -30,16 +32,19 @@ internal sealed class InterfaceSkin : IDisposable
     {
         this.hud = hud;
         this.art = art;
-        var hotbar = hud.m_rootObject.GetComponentInChildren<HotkeyBar>(true);
-        if (hotbar && hotbar.m_elementPrefab && hud.m_healthText)
-            items = new ItemInterface(hotbar, art, hud.m_healthText.font);
 
         var canvas = hud.m_healthText ? hud.m_healthText.GetComponentInParent<Canvas>(true) : null;
         if (!canvas) return;
         worldRoot = ItemUi.Rect(canvas.transform, "NewUI_WorldHud");
         ItemUi.Stretch(worldRoot, Vector2.zero, Vector2.zero);
+        onlinePlayers = new OnlinePlayers(worldRoot, art, hud.m_healthText.font);
+        var hotbar = hud.m_rootObject.GetComponentInChildren<HotkeyBar>(true);
+        if (hotbar && hotbar.m_elementPrefab && hud.m_healthText)
+            items = new ItemInterface(hotbar, art, hud.m_healthText.font, onlinePlayers);
+
         worldInteractions = new WorldInteractionHud(hud, canvas, worldRoot, art);
         mapHud = new MapHud(hud, worldRoot, art);
+        combat = new CombatReticle(hud, worldRoot, art);
         notifications = new NotificationHud(worldRoot, art, hud.m_healthText.font);
     }
 
@@ -68,14 +73,18 @@ internal sealed class InterfaceSkin : IDisposable
         pauseWasOpen = paused;
 
         var player = Player.m_localPlayer;
-        items?.Refresh(inventory, player);
+
         bool inventoryOpen = InventoryGui.IsVisible();
         bool mapOpen = Minimap.IsOpen();
         bool visible = player && !player.IsDead() && hud.isActiveAndEnabled && hud.m_rootObject.activeInHierarchy && hud.IsVisible();
         bool covered = paused || mapOpen || Console.IsVisible() || (TextViewer.instance && TextViewer.instance.IsVisible());
         worldInteractions?.Refresh(player, visible && !covered && !inventoryOpen);
         mapHud?.Refresh(player, visible && !mapOpen && !inventoryOpen, theme.CompassHighlightDistance);
-        notifications?.Refresh(visible && !inventoryOpen && !mapOpen, covered);
+        LifeNotices.Observe(player);
+        onlinePlayers?.Refresh(player, visible && !covered && !inventoryOpen, theme.PlayerDetectionDistance);
+        items?.Refresh(inventory, player);
+        combat?.Refresh(player, visible && !covered && !inventoryOpen);
+        notifications?.Refresh(covered);
         if (vitals == null && worldRoot && hud.m_crosshair && hud.m_healthBarRoot && hud.m_staminaBar2Root)
         {
             var canvas = worldRoot.GetComponentInParent<Canvas>(true);
@@ -257,6 +266,8 @@ internal sealed class InterfaceSkin : IDisposable
     {
         vitals?.Dispose();
         notifications?.Dispose();
+        combat?.Dispose();
+        onlinePlayers?.Dispose();
         worldInteractions?.Dispose();
         mapHud?.Dispose();
         ItemUi.Destroy(worldRoot);

@@ -16,12 +16,15 @@ internal sealed class ItemTooltip
     private readonly Canvas canvas;
     private readonly RectTransform card;
     private readonly Image surface, header, icon, rule, banner, bannerEdge, footerRule;
-    private readonly TextMeshProUGUI title, details, warning, footer;
+    private readonly TextMeshProUGUI title, details, warning, footer, stack, weight;
+    private readonly Image weightIcon;
+    private readonly DurabilityEdge durability;
     private GameObject nativePopup;
     private HiddenGraphics nativeVisuals;
     private ItemDrop.ItemData lastItem;
     private string lastText, lastTopic, lastFooter;
     private bool lastCheated;
+    private int lastStack;
     private float lastWidth, lastMaxHeight;
 
     internal ItemTooltip(Canvas canvas, Artwork art, TMP_FontAsset font)
@@ -62,6 +65,14 @@ internal sealed class ItemTooltip
         footer = ItemUi.Text(card, "PickupBinding", font, 15, ItemUi.Ink);
         footer.alignment = TextAlignmentOptions.Center;
         footer.fontStyle = FontStyles.Bold;
+        stack = ItemUi.Text(card, "StackQuantity", font, 17, ItemUi.Accent);
+        stack.alignment = TextAlignmentOptions.MidlineRight;
+        weight = ItemUi.Text(card, "Weight", font, 15, ItemUi.Ink);
+        weight.alignment = TextAlignmentOptions.MidlineRight;
+        weightIcon = ItemUi.Image(card, "WeightIcon", art["weight"]);
+        weightIcon.color = ItemUi.Accent;
+        durability = ItemUi.Rect(card, "Durability").gameObject.AddComponent<DurabilityEdge>();
+        durability.raycastTarget = false;
         card.gameObject.SetActive(false);
     }
 
@@ -91,6 +102,23 @@ internal sealed class ItemTooltip
         Show(item, owner.m_topic, owner.m_text, "", screen);
     }
 
+    internal void RefreshPointer(UITooltip owner, ItemDrop.ItemData item)
+    {
+        if (item == null || !owner)
+        {
+            Hide();
+            return;
+        }
+        // The pointer card covers the entire cell, independently of the stock
+        // tooltip's input rectangle. Gamepad and touch keep the native owner.
+        if (Current == owner && PopupField?.GetValue(null) is GameObject popup && popup.activeInHierarchy)
+        {
+            Refresh(owner, (RectTransform)owner.transform, item);
+            return;
+        }
+        Show(item, owner.m_topic, owner.m_text, "", ZInput.pointerPosition);
+    }
+
     internal void RefreshWorld(ItemDrop.ItemData item, Vector2 screen, string pickupHint)
     {
         if (item == null)
@@ -110,9 +138,10 @@ internal sealed class ItemTooltip
         float width = Mathf.Max(1, Mathf.Min(340, bounds.width - 24));
         float maxHeight = Mathf.Max(1, bounds.height - 24);
         if (lastItem != item || lastText != text || lastTopic != topic || lastFooter != pickupHint
-            || lastCheated != item.m_cheated || lastWidth != width || lastMaxHeight != maxHeight)
+            || lastCheated != item.m_cheated || lastStack != item.m_stack || lastWidth != width || lastMaxHeight != maxHeight)
         {
             lastItem = item;
+            lastStack = item.m_stack;
             lastText = text;
             lastTopic = topic;
             lastFooter = pickupHint;
@@ -121,10 +150,11 @@ internal sealed class ItemTooltip
             lastMaxHeight = maxHeight;
             Layout(item, width, maxHeight);
         }
+        durability.SetItem(pickupHint.Length > 0 ? item : null);
         Camera camera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
         RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, screen, camera, out var pointer);
         float height = card.rect.height;
-        float offset = pickupHint.Length > 0 ? 29 : 18;
+        float offset = pickupHint.Length > 0 ? 62 : 18;
         float x = pointer.x + offset;
         if (x + width > bounds.xMax - 12) x = pointer.x - width - offset;
         float y = pointer.y - 16;
@@ -155,6 +185,10 @@ internal sealed class ItemTooltip
 
         bool withFooter = lastFooter.Length > 0;
         const int footerHeight = 36;
+        stack.enabled = weight.enabled = weightIcon.enabled = withFooter;
+        stack.text = $"×{item.m_stack}";
+        weight.text = $"{item.GetWeight():0.##} " + MenuStyle.Translate("kg", "кг");
+        float rightColumn = withFooter ? Mathf.Max(56, Mathf.Ceil(stack.GetPreferredValues(stack.text).x) + 11) : 0;
         float bottomSpace = withFooter ? padding + footerHeight : padding;
         float available = Mathf.Max(1, maxHeight - bodyY - bottomSpace);
         details.fontSize = 16;
@@ -173,7 +207,9 @@ internal sealed class ItemTooltip
         ItemUi.TopLeft(bannerEdge.rectTransform, 0, 0, width, 2);
         ItemUi.TopLeft(surface.rectTransform, 0, bannerHeight, width, Mathf.Max(1, height - bannerHeight));
         ItemUi.TopLeft(header.rectTransform, padding, start, 42, 42);
-        ItemUi.TopLeft(title.rectTransform, padding + 54, start, Mathf.Max(1, bodyWidth - 54), 42);
+        ItemUi.TopLeft(title.rectTransform, padding + 54, start, Mathf.Max(1, bodyWidth - 54 - rightColumn), 42);
+        ItemUi.TopLeft(stack.rectTransform, width - padding - rightColumn, start, rightColumn, 23);
+        ItemUi.TopLeft(durability.rectTransform, width - padding - rightColumn, start + 26, rightColumn + 3, 12);
         ItemUi.TopLeft(rule.rectTransform, padding, start + 51, bodyWidth, 1);
         ItemUi.TopLeft(details.rectTransform, padding, bodyY, bodyWidth, Mathf.Max(1, height - bodyY - bottomSpace + 5));
         footerRule.enabled = withFooter;
@@ -181,7 +217,15 @@ internal sealed class ItemTooltip
         if (!withFooter) return;
         footer.text = lastFooter;
         ItemUi.TopLeft(footerRule.rectTransform, padding, height - footerHeight - 7, bodyWidth, 1);
-        ItemUi.TopLeft(footer.rectTransform, padding, height - footerHeight - 4, bodyWidth, footerHeight);
+        float weightWidth = Mathf.Ceil(weight.GetPreferredValues(weight.text).x);
+        footer.alignment = TextAlignmentOptions.MidlineLeft;
+        footer.enableAutoSizing = true;
+        footer.fontSizeMin = 11;
+        footer.fontSizeMax = 15;
+        float footerTop = height - footerHeight - 4;
+        ItemUi.TopLeft(footer.rectTransform, padding, footerTop, Mathf.Max(1, bodyWidth - weightWidth - 30), footerHeight);
+        ItemUi.TopLeft(weight.rectTransform, width - padding - weightWidth, footerTop, weightWidth, footerHeight);
+        ItemUi.TopLeft(weightIcon.rectTransform, width - padding - weightWidth - 21, footerTop + 10, 16, 16);
     }
 
     private void Hide()

@@ -10,23 +10,25 @@ namespace ValheimNewUI;
 internal sealed class NotificationHud : IDisposable
 {
     private const int MaxMessages = 5;
-    internal enum Kind { General, Skill, Pickup, Item, Building }
+    internal enum Kind { General, Skill, Pickup, Drop, Item, Building, Biome, Death }
     private static readonly System.Reflection.FieldInfo Unlocks = AccessTools.Field(typeof(MessageHud), "m_unlockMessages");
     private static readonly System.Reflection.FieldInfo Biome = AccessTools.Field(typeof(MessageHud), "m_biomeMsgInstance");
     private readonly RectTransform root;
     private readonly Toast skill;
+    private readonly ScreenAnnouncement announcement;
     private readonly Toast[] messages, pickups, items, buildings;
     private readonly List<Notice> active = new(), gained = new(), itemDiscoveries = new(), buildingDiscoveries = new();
     private readonly List<HiddenGraphics> stock = new();
     private readonly Dictionary<GameObject, HiddenGraphics> popups = new();
     private readonly List<GameObject> expiredPopups = new();
     private MessageHud owner;
-    private Notice skillNotice;
+    private Notice skillNotice, biomeNotice, deathNotice;
 
     internal NotificationHud(RectTransform parent, Artwork art, TMP_FontAsset font)
     {
         root = ItemUi.Rect(parent, "Notifications");
         ItemUi.Stretch(root, Vector2.zero, Vector2.zero);
+        announcement = new ScreenAnnouncement(root, art, font);
         skill = new Toast(root, art, font, Kind.Skill);
         messages = CreateToasts(Kind.General, MaxMessages, art, font);
         pickups = CreateToasts(Kind.Pickup, 3, art, font);
@@ -41,7 +43,7 @@ internal sealed class NotificationHud : IDisposable
         return toasts;
     }
 
-    internal void Refresh(bool showVitals, bool covered)
+    internal void Refresh(bool covered)
     {
         if (owner != MessageHud.instance)
         {
@@ -50,7 +52,7 @@ internal sealed class NotificationHud : IDisposable
             gained.Clear();
             itemDiscoveries.Clear();
             buildingDiscoveries.Clear();
-            skillNotice = null;
+            skillNotice = biomeNotice = deathNotice = null;
             owner = MessageHud.instance;
             if (owner)
             {
@@ -75,13 +77,18 @@ internal sealed class NotificationHud : IDisposable
         bool hidden = Hud.IsUserHidden();
         float width = root.rect.width;
         float column = Mathf.Clamp((width - 40) / 2, 110, 254);
-        float bottom = showVitals && width * 0.5f - column - 9 < 470 ? VitalsView.Clearance + 4 : 61;
+        const float bottom = 211;
         float offset = column * 0.5f + 8;
         skill.Show(!covered && !hidden ? skillNotice : null, now, 0, -173, 470);
         Stack(pickups, gained, now, 0, -72, 232, covered, hidden, -1);
-        float left = Stack(items, itemDiscoveries, now, -offset, bottom, column, covered, hidden);
-        float right = Stack(buildings, buildingDiscoveries, now, offset, bottom, column, covered, hidden);
+        bool hasItems = itemDiscoveries.Exists(notice => notice.Expires > now && (!hidden || notice.Force));
+        bool hasBuildings = buildingDiscoveries.Exists(notice => notice.Expires > now && (!hidden || notice.Force));
+        bool both = hasItems && hasBuildings;
+        float left = Stack(items, itemDiscoveries, now, both ? -offset : 0, bottom, column, covered, hidden);
+        float right = Stack(buildings, buildingDiscoveries, now, both ? offset : 0, bottom, column, covered, hidden);
         Stack(messages, active, now, 0, Mathf.Max(left, right), 470, covered, hidden);
+        bool death = deathNotice != null && now < deathNotice.Expires;
+        announcement.Show(death ? deathNotice : !covered && !hidden ? biomeNotice : null, now);
     }
 
     private static float Stack(Toast[] views, List<Notice> notices, float now, float x, float y, float width,
@@ -109,14 +116,24 @@ internal sealed class NotificationHud : IDisposable
             skillNotice = notice;
             return;
         }
+        if (notice.Type == Kind.Biome)
+        {
+            biomeNotice = notice;
+            return;
+        }
+        if (notice.Type == Kind.Death)
+        {
+            deathNotice = notice;
+            return;
+        }
         var list = notice.Type switch
         {
-            Kind.Pickup => gained,
+            Kind.Pickup or Kind.Drop => gained,
             Kind.Item => itemDiscoveries,
             Kind.Building => buildingDiscoveries,
             _ => active
         };
-        int repeated = list.FindIndex(other => other.Title == notice.Title && other.Subtitle == notice.Subtitle && other.Icon == notice.Icon);
+        int repeated = list.FindIndex(other => other.Type == notice.Type && other.Title == notice.Title && other.Subtitle == notice.Subtitle && other.Icon == notice.Icon);
         if (repeated >= 0)
         {
             var previous = list[repeated];
@@ -143,8 +160,8 @@ internal sealed class NotificationHud : IDisposable
         if (!title) return;
         var details = unlock ? popup.transform.Find("UnlockMessage/UnlockDescription")?.GetComponent<TMP_Text>() : null;
         var icon = unlock ? popup.transform.Find("UnlockMessage/icon_bkg/UnlockIcon")?.GetComponent<Image>() : null;
-        Kind kind = unlock ? ClassifyDiscovery(title.text) : Kind.General;
-        Add(new Notice(title.text, details ? details.text : "", icon ? icon.sprite : null, 0, kind, false, 6));
+        Kind kind = unlock ? ClassifyDiscovery(title.text) : Kind.Biome;
+        Add(new Notice(title.text, details ? details.text : "", icon ? icon.sprite : null, 0, kind, false, unlock ? 6 : 9));
         var hidden = new HiddenGraphics(popup);
         hidden.SetRaycasts(false);
         popups.Add(popup, hidden);
@@ -204,6 +221,7 @@ internal sealed class NotificationHud : IDisposable
         private readonly TextMeshProUGUI title, subtitle, plus;
         private readonly Image icon, line;
         private readonly bool skill, pickup;
+        private readonly HudSparks sparks;
         private Notice current;
         private float width, height;
 
@@ -216,6 +234,19 @@ internal sealed class NotificationHud : IDisposable
             rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, skill ? 1 : pickup ? 0.5f : 0);
             group = card.gameObject.AddComponent<CanvasGroup>();
             group.blocksRaycasts = false;
+            if (skill)
+            {
+                card.enabled = false;
+                var shadow = HudStyle.Shadow(rect, art, 0.95f);
+                HudStyle.Center(shadow.rectTransform, 0, -25, 390, 140);
+                var halo = ItemUi.Rect(rect, "SkillHalo");
+                // A soft golden rim, with animated motes behind the text.
+                var glow = halo.gameObject.AddComponent<GlowGraphic>();
+                glow.raycastTarget = false;
+                HudStyle.Center(halo, 0, -25, 340, 106);
+                sparks = HudSparks.Create(rect, "GoldMotes", 340, 120, 27);
+                sparks.rectTransform.anchoredPosition = new Vector2(0, -25);
+            }
             line = ItemUi.Image(rect, "Accent");
             line.color = ItemUi.Accent;
             icon = ItemUi.Image(rect, "Icon");
@@ -269,14 +300,22 @@ internal sealed class NotificationHud : IDisposable
                 subtitle.alignment = title.alignment;
                 ItemUi.TopLeft(title.rectTransform, margin + left, top, cardWidth - left - 14, main);
                 ItemUi.TopLeft(subtitle.rectTransform, margin + left, top + main, cardWidth - left - 14, secondary);
-                if (pickup) ItemUi.TopLeft(plus.rectTransform, margin + 7, margin, 18, height);
+                if (pickup)
+                {
+                    bool dropped = notice.Type == Kind.Drop;
+                    plus.text = dropped ? "−" : "+";
+                    plus.color = dropped ? (Color)ItemUi.Warning : ItemUi.Accent;
+                    ItemUi.TopLeft(plus.rectTransform, margin + 7, margin, 18, height);
+                }
             }
             group.alpha = Mathf.Clamp01((notice.Expires - now) / 0.55f);
+            if (skill)
+                sparks.Animate(now - notice.Created, new Color32(255, 200, 99, 255), 142, 16);
             if (pickup)
             {
                 float t = Mathf.Clamp01((now - notice.Created) / 0.38f);
                 float remaining = t - 1;
-                x += 55 * remaining * remaining * (2.3f * remaining + 1.3f);
+                x += (notice.Type == Kind.Drop ? -55 : 55) * remaining * remaining * (2.3f * remaining + 1.3f);
                 group.alpha *= Mathf.Clamp01(t * 4);
             }
             rect.anchoredPosition = new Vector2(x, y);
@@ -306,17 +345,26 @@ internal static class NativeMessagePatch
     {
         if (!Enabled || string.IsNullOrEmpty(text) || Hud.IsUserHidden() && !showDespiteHiddenHUD) return;
         if (type != MessageHud.MessageType.TopLeft && type != MessageHud.MessageType.Center || RestHud.IsStatusMessage(text)) return;
-        if (owner != __instance)
-        {
-            owner = __instance;
-            Queue.Clear();
-        }
+        if (text == "$msg_youdied" || text == "$msg_softdeath") return;
         bool skill = text.StartsWith("$msg_skillup ", StringComparison.Ordinal);
         bool pickup = text.StartsWith("$msg_added ", StringComparison.Ordinal);
-        var kind = skill ? NotificationHud.Kind.Skill : pickup ? NotificationHud.Kind.Pickup : NotificationHud.Kind.General;
-        if (pickup) text = text.Substring("$msg_added ".Length);
-        Queue.Add(new NotificationHud.Notice(Localization.instance.Localize(text), "", icon, amount, kind,
-            showDespiteHiddenHUD, skill ? 5 : pickup ? 2.6f : 4.5f));
+        bool dropped = text.StartsWith("$msg_dropped ", StringComparison.Ordinal);
+        var kind = skill ? NotificationHud.Kind.Skill : pickup ? NotificationHud.Kind.Pickup
+            : dropped ? NotificationHud.Kind.Drop : NotificationHud.Kind.General;
+        if (pickup || dropped) text = text.Substring((pickup ? "$msg_added " : "$msg_dropped ").Length);
+        Enqueue(__instance, new NotificationHud.Notice(Localization.instance.Localize(text), "", icon, amount, kind,
+            showDespiteHiddenHUD, skill ? 5 : pickup || dropped ? 2.6f : 4.5f));
+    }
+
+    internal static void Enqueue(MessageHud instance, NotificationHud.Notice notice)
+    {
+        if (!Enabled || !instance) return;
+        if (owner != instance)
+        {
+            owner = instance;
+            Queue.Clear();
+        }
+        Queue.Add(notice);
         if (Queue.Count > 32) Queue.RemoveAt(0);
     }
 

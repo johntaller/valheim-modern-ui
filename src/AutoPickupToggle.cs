@@ -15,8 +15,6 @@ internal sealed class AutoPickupToggle
     private readonly RectTransform rect;
     private readonly Button button;
     private readonly Image track, knob;
-    private readonly TextMeshProUGUI key;
-    private readonly RectTransform badge;
     private bool? previous;
 
     internal AutoPickupToggle(RectTransform parent, Artwork art, TMP_FontAsset font)
@@ -43,11 +41,6 @@ internal sealed class AutoPickupToggle
         const float labelLeft = 39;
         float labelWidth = Mathf.Max(100, Mathf.Ceil(label.GetPreferredValues(label.text).x) + 6);
         ItemUi.TopLeft(label.rectTransform, labelLeft, 0, labelWidth, 31);
-        badge = ItemUi.Image(rect, "BindingBackground", art["button"]).rectTransform;
-        ItemUi.TopLeft(badge, labelLeft + labelWidth + 7, 5, 25, 21);
-        key = ItemUi.Text(badge, "Binding", font, 13, ItemUi.Muted);
-        key.alignment = TextAlignmentOptions.Center;
-        ItemUi.Stretch(key.rectTransform, Vector2.zero, Vector2.zero);
         SetVisible(false);
     }
 
@@ -67,15 +60,6 @@ internal sealed class AutoPickupToggle
             previous = enabled;
             track.color = enabled ? On : Off;
             ItemUi.TopLeft(knob.rectTransform, enabled ? 17 : 2, 2, 11, 11);
-        }
-        string binding = ZInput.instance?.GetBoundKeyString("AutoPickup", emptyStringOnMissing: true);
-        bool bound = !string.IsNullOrEmpty(binding);
-        if (badge.gameObject.activeSelf != bound) badge.gameObject.SetActive(bound);
-        if (bound) binding = Localization.instance.Localize(binding);
-        if (key.text != binding)
-        {
-            key.text = binding;
-            badge.sizeDelta = new Vector2(Mathf.Max(25, key.GetPreferredValues(binding ?? "").x + 12), 21);
         }
     }
 

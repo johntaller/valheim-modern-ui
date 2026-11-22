@@ -12,7 +12,7 @@ namespace ValheimNewUI;
 
 internal sealed class CraftingMenu : IDisposable
 {
-    private enum Page { Craft, Character, Skills, Lore, Trophies, Achievements }
+    private enum Page { Craft, Character, Skills, Lore, Trophies, Achievements, Players }
     private enum Category { All, Weapons, Armor, Tools, Food, Materials, Other }
     private static readonly Action<InventoryGui, bool> RebuildRecipes =
         AccessTools.MethodDelegate<Action<InventoryGui, bool>>(AccessTools.Method(typeof(InventoryGui), "UpdateCraftingPanel"));
@@ -34,6 +34,7 @@ internal sealed class CraftingMenu : IDisposable
     private readonly TextMeshProUGUI categoryLabel, empty, title, identity;
     private readonly Button categoryButton;
     private readonly CharacterPage sheet;
+    private readonly PlayersPage playersPage;
     private readonly InlinePage[] pages;
     private readonly Button[] buttons;
     private readonly List<RectTransform> recipeRows = new();
@@ -47,7 +48,7 @@ internal sealed class CraftingMenu : IDisposable
     private bool wasOpen, pendingFilter;
     private float nextStyleScan;
 
-    internal CraftingMenu(InventoryGui gui, Artwork art, TMP_FontAsset font)
+    internal CraftingMenu(InventoryGui gui, Artwork art, TMP_FontAsset font, OnlinePlayers players)
     {
         Gui = gui;
         this.art = art;
@@ -76,7 +77,8 @@ internal sealed class CraftingMenu : IDisposable
         var body = ItemUi.Rect(content, "Body");
         ItemUi.Stretch(body, new Vector2(16, 14), new Vector2(-16, -65));
         sheet = new CharacterPage(body, art, font);
-        pages = new InlinePage[6];
+        playersPage = new PlayersPage(body, players, art, font);
+        pages = new InlinePage[7];
         pages[(int)Page.Skills] = new InlinePage(gui.m_skillsDialog.transform, body, style, PageTitle(Page.Skills));
         pages[(int)Page.Lore] = new InlinePage(gui.m_textsDialog.transform, body, style, PageTitle(Page.Lore),
             MenuStyle.Translate("Valheim compendium", "Компендиум Valheim"), MenuStyle.Translate("Texts", "Тексты"));
@@ -101,7 +103,7 @@ internal sealed class CraftingMenu : IDisposable
         identity.richText = false;
         Put(identity.rectTransform, 17, 9, 17, 27);
 
-        buttons = new Button[6];
+        buttons = new Button[7];
         var nav = ItemUi.Rect(tabs, "Tabs");
         ItemUi.Stretch(nav, new Vector2(15, 13), new Vector2(-15, -43));
         nav.gameObject.AddComponent<VerticalLayoutGroup>().spacing = 6;
@@ -115,7 +117,7 @@ internal sealed class CraftingMenu : IDisposable
         for (int i = 0; i < buttons.Length; i++)
         {
             var page = (Page)i;
-            buttons[i] = MenuStyle.Button(rows[i / 3], art, font, PageTitle(page), () => Open(page), out _);
+            buttons[i] = MenuStyle.Button(rows[i / 4], art, font, PageTitle(page), () => Open(page), out _);
             if (page == Page.Achievements && !gui.m_achievementsPanel) buttons[i].interactable = false;
         }
         originalDefault = gui.m_uiGroups.Length > 2 && gui.m_uiGroups[2] ? gui.m_uiGroups[2].m_defaultElement : null;
@@ -245,6 +247,7 @@ internal sealed class CraftingMenu : IDisposable
         Gui.m_crafting.gameObject.SetActive(crafting);
         content.gameObject.SetActive(!crafting);
         sheet.Root.gameObject.SetActive(selected == Page.Character);
+        playersPage.Root.gameObject.SetActive(selected == Page.Players);
         title.text = PageTitle(selected);
         for (int i = 0; i < buttons.Length; i++)
             ((Image)buttons[i].targetGraphic).sprite = art[(Page)i == selected ? "selected" : "button"];
@@ -295,6 +298,7 @@ internal sealed class CraftingMenu : IDisposable
         if (page != null && !page.Active) Open(Page.Craft);
         else page?.Fit();
         sheet.Refresh(player);
+        playersPage.Refresh();
 
         if (pendingFilter && selected == Page.Craft)
         {
@@ -387,6 +391,7 @@ internal sealed class CraftingMenu : IDisposable
 
     private static string PageTitle(Page page) => page switch
     {
+        Page.Players => MenuStyle.Translate("Players", "Игроки"),
         Page.Craft => MenuStyle.Translate("Crafting", "Крафт"),
         Page.Character => MenuStyle.Translate("Character", "Персонаж"),
         Page.Skills => MenuStyle.Translate("Skills", "Навыки"),
