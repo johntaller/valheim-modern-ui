@@ -80,7 +80,7 @@ internal sealed class PlayersPage
         {
             Rect = ItemUi.Image(parent, "PlayerCard", art["slot"]).rectTransform;
             CraftingMenu.Put(Rect, 0, i * 88, 0, 82);
-            name = MenuStyle.Label(Rect, "Name", font, "", 17, ItemUi.Ink);
+            name = MenuStyle.Label(Rect, "Name", HudStyle.DisplayFont(font), "", 19, ItemUi.Ink);
             name.richText = false;
             name.overflowMode = TextOverflowModes.Ellipsis;
             CraftingMenu.Put(name.rectTransform, 11, 5, 112, 24);

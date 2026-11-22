@@ -82,9 +82,7 @@ internal sealed class DurabilityEdge : MaskableGraphic
         float next = Mathf.Clamp01(item.GetDurabilityPercentage());
         if (next == 0)
         {
-            const float period = 0.9f;
-            float flash = 0.5f + 0.5f * Mathf.Cos(Time.unscaledTime * (2 * Mathf.PI / period));
-            canvasRenderer.SetColor(Color32.Lerp(Low, Color.white, flash));
+            canvasRenderer.SetColor(MeterColor(0));
         }
         else if (value == 0)
         {
@@ -109,10 +107,20 @@ internal sealed class DurabilityEdge : MaskableGraphic
         }
 
         DrawStroke(mesh, rect, 1, new Color32(18, 22, 21, 225));
-        Color32 tint = value <= 0.5f
-            ? Color32.Lerp(Low, Middle, value * 2)
-            : Color32.Lerp(Middle, High, (value - 0.5f) * 2);
-        DrawStroke(mesh, rect, value, tint);
+        DrawStroke(mesh, rect, value, MeterColor(value));
+    }
+
+    internal static Color32 MeterColor(float remaining)
+    {
+        if (remaining <= 0)
+        {
+            const float period = 0.9f;
+            float flash = 0.5f + 0.5f * Mathf.Cos(Time.unscaledTime * (2 * Mathf.PI / period));
+            return Color32.Lerp(Low, Color.white, flash);
+        }
+        return remaining <= 0.5f
+            ? Color32.Lerp(Low, Middle, remaining * 2)
+            : Color32.Lerp(Middle, High, (remaining - 0.5f) * 2);
     }
 
     private static void DrawStroke(VertexHelper mesh, Rect rect, float fraction, Color32 tint)

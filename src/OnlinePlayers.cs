@@ -154,7 +154,7 @@ internal sealed class OnlinePlayers : IDisposable
             avatar = ItemUi.Rect(well.transform, "Portrait").gameObject.AddComponent<RawImage>();
             avatar.raycastTarget = false;
             ItemUi.Stretch(avatar.rectTransform, Vector2.one * 2, Vector2.one * -2);
-            name = MenuStyle.Label(row, "Name", font, "", 16, ItemUi.Ink);
+            name = MenuStyle.Label(row, "Name", HudStyle.DisplayFont(font), "", 17, ItemUi.Ink);
             name.richText = false;
             name.overflowMode = TextOverflowModes.Ellipsis;
             ItemUi.TopLeft(name.rectTransform, 50, 0, 172, 20);

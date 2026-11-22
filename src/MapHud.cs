@@ -13,6 +13,8 @@ internal sealed class MapHud : IDisposable
     private static readonly System.Reflection.FieldInfo VisibleTypes = AccessTools.Field(typeof(Minimap), "m_visibleIconTypes");
     private static readonly System.Reflection.FieldInfo SharedFade = AccessTools.Field(typeof(Minimap), "m_sharedMapDataFade");
 
+    private static readonly System.Reflection.FieldInfo DeathPin = AccessTools.Field(typeof(Minimap), "m_deathPin");
+
     private readonly RectTransform root, area, pinRoot, mapRoot, caption;
     private readonly CircleMap terrain;
     private readonly Image marker, ship, wind, windFace;
@@ -120,7 +122,7 @@ internal sealed class MapHud : IDisposable
         {
             RefreshMap(map, pins, size);
             rest.Refresh(player);
-            compass.Refresh(player, pins, VisibleTypes?.GetValue(map) as bool[],
+            compass.Refresh(player, pins, DeathPin?.GetValue(map) as Minimap.PinData, VisibleTypes?.GetValue(map) as bool[],
                 SharedFade?.GetValue(map) is float fade ? fade : 0, highlightDistance);
         }
         else

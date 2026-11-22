@@ -83,6 +83,7 @@ public sealed class Plugin : BaseUnityPlugin
         if (theme.Enabled) skin?.Apply(theme);
         else
         {
+            InventoryTooltipPopup.Restore();
             ReleaseMenus();
             Release();
         }
