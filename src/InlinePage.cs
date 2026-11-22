@@ -81,6 +81,21 @@ internal sealed class InlinePage
                 first = false;
             }
         }
+        if (!first && titles.Length == 0)
+        {
+            // Some settings labels extend to the left of the native controls.
+            // Include their glyphs without counting the vertical extent of scrolled rows.
+            foreach (var label in page.GetComponentsInChildren<TMP_Text>(false))
+            {
+                if (!label.enabled || string.IsNullOrWhiteSpace(label.text)) continue;
+                var text = label.textBounds;
+                if (text.size.x <= 0) continue;
+                var left = page.InverseTransformPoint(label.transform.TransformPoint(text.min));
+                var right = page.InverseTransformPoint(label.transform.TransformPoint(text.max));
+                bounds.Encapsulate(new Vector3(left.x, bounds.center.y));
+                bounds.Encapsulate(new Vector3(right.x, bounds.center.y));
+            }
+        }
         if (!first && bounds.size.x >= 100 && bounds.size.y >= 100)
         {
             const float pad = 6;
