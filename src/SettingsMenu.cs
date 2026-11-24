@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -21,13 +20,14 @@ internal sealed class SettingsMenu : IDisposable
     private readonly MenuStyle style;
     private readonly Artwork art;
     private readonly TabHandler handler;
-    private readonly RectTransform frame;
-    private readonly InlinePage[] pages;
+    private readonly RectTransform frame, headingBar;
+    private readonly SettingsPageView[] pages;
     private readonly string[] names;
+    private readonly Image[] markers;
     private readonly TextMeshProUGUI heading;
-    private readonly HashSet<TMP_Text> labels = new();
-    private int selected = -1;
+    private int selected = -1, railSelected = -1;
     private float nextScan;
+    private readonly System.Collections.Generic.HashSet<Button> placedBacks = new();
 
     internal Settings Owner { get; }
 
@@ -41,6 +41,7 @@ internal sealed class SettingsMenu : IDisposable
         var parent = (RectTransform)(native ? native.transform : handler.transform);
         var firstTab = handler.m_tabs.Find(tab => tab.m_button)?.m_button;
         var baseFont = firstTab ? firstTab.GetComponentInChildren<TMP_Text>(true)?.font : TMP_Settings.defaultFontAsset;
+        var sans = FindSans(settings.transform) ?? baseFont;
 
         frame = ItemUi.Image(parent, "NewUI_Settings", art["panel"]).rectTransform;
         ItemUi.Stretch(frame, new Vector2(3, 6), new Vector2(-3, -6));
@@ -60,22 +61,26 @@ internal sealed class SettingsMenu : IDisposable
         rail.offsetMax = new Vector2(217, -75);
         var bodyPanel = ItemUi.Image(frame, "SettingsBody", art["slot"]).rectTransform;
         ItemUi.Stretch(bodyPanel, new Vector2(231, 76), new Vector2(-19, -75));
-        heading = MenuStyle.Label(bodyPanel, "CurrentCategory", baseFont, "", 21, ItemUi.Accent);
+
+        headingBar = ItemUi.Rect(bodyPanel, "Heading");
+        CraftingMenu.Put(headingBar, 19, 8, 16, 38);
+        heading = MenuStyle.Label(headingBar, "CurrentCategory", baseFont, "", 21, ItemUi.Accent);
         heading.fontStyle = FontStyles.Bold;
-        CraftingMenu.Put(heading.rectTransform, 19, 10, 18, 32);
+        ItemUi.Stretch(heading.rectTransform, Vector2.zero, new Vector2(-130, 0));
         var separator = ItemUi.Image(bodyPanel, "Divider");
         separator.color = MenuStyle.Edge;
-        CraftingMenu.Put(separator.rectTransform, 19, 46, 19, 1);
+        CraftingMenu.Put(separator.rectTransform, 19, 48, 19, 1);
         var body = ItemUi.Rect(bodyPanel, "SettingsControls");
-        ItemUi.Stretch(body, new Vector2(31, 12), new Vector2(-18, -52));
+        ItemUi.Stretch(body, new Vector2(8, 10), new Vector2(-8, -54));
 
-        pages = new InlinePage[handler.m_tabs.Count];
+        pages = new SettingsPageView[handler.m_tabs.Count];
         names = new string[pages.Length];
+        markers = new Image[pages.Length];
         int visibleTab = 0;
         for (int i = 0; i < pages.Length; i++)
         {
             var tab = handler.m_tabs[i];
-            if (tab.m_page) pages[i] = new InlinePage(tab.m_page, body, style);
+            if (tab.m_page) pages[i] = new SettingsPageView(tab.m_page, body, style, art, sans);
             if (!tab.m_button) continue;
             var button = tab.m_button;
             var rect = (RectTransform)button.transform;
@@ -83,7 +88,7 @@ internal sealed class SettingsMenu : IDisposable
             names[i] = label ? label.text : "";
             style.Remember(new MenuRect(rect).Restore);
             Move(rect, rail);
-            CraftingMenu.Put(rect, 9, 10 + visibleTab++ * 49, 9, 42);
+            CraftingMenu.Put(rect, 9, 10 + visibleTab++ * 47, 9, 41);
             if (button.targetGraphic is Image image)
             {
                 style.Control(button);
@@ -95,14 +100,47 @@ internal sealed class SettingsMenu : IDisposable
             }
             var selectedObj = button.transform.Find("Selected");
             if (selectedObj) style.Hide(selectedObj.gameObject);
-            if (label) style.Text(label, ItemUi.Ink, 16);
+            if (label)
+            {
+                style.Text(label, ItemUi.Muted, 16);
+                Align(label, TextAlignmentOptions.MidlineLeft, new Vector4(18, 0, 6, 0));
+            }
+            markers[i] = ItemUi.Image(rect, "NewUI_Marker", art["pill"]);
+            markers[i].color = ItemUi.Accent;
+            markers[i].rectTransform.anchorMin = new Vector2(0, 0.5f);
+            markers[i].rectTransform.anchorMax = new Vector2(0, 0.5f);
+            markers[i].rectTransform.pivot = new Vector2(0, 0.5f);
+            markers[i].rectTransform.sizeDelta = new Vector2(4, 22);
+            markers[i].rectTransform.anchoredPosition = new Vector2(7, 0);
+            style.Claim(markers[i]);
+            var marker = markers[i].gameObject;
+            style.Remember(() => { if (marker) UnityEngine.Object.Destroy(marker); });
         }
 
-        var back = NativeBack(settings);
-        var apply = NativeApply(settings);
-        FooterButton(back, 160, primary: false);
-        FooterButton(apply, 20, primary: true);
+        FooterButton(NativeBack(settings), 160, primary: false);
+        FooterButton(NativeApply(settings), 20, primary: true);
         Refresh();
+    }
+
+    private static TMP_FontAsset FindSans(Transform root)
+    {
+        foreach (var text in root.GetComponentsInChildren<TMP_Text>(true))
+            if (text.font && text.font.name.IndexOf("Sans", StringComparison.OrdinalIgnoreCase) >= 0) return text.font;
+        return null;
+    }
+
+    private void Align(TMP_Text label, TextAlignmentOptions alignment, Vector4 margin)
+    {
+        var previous = label.alignment;
+        var spacing = label.margin;
+        style.Remember(() =>
+        {
+            if (!label) return;
+            label.alignment = previous;
+            label.margin = spacing;
+        });
+        label.alignment = alignment;
+        label.margin = margin;
     }
 
     private void HideNativeChrome(RectTransform parent, RectTransform replacement)
@@ -149,43 +187,85 @@ internal sealed class SettingsMenu : IDisposable
     internal void Refresh()
     {
         if (!handler || !frame) return;
-        int tab = handler.GetActiveTab();
-        if (tab >= 0 && tab < pages.Length)
+        int tab = ActiveTab();
+        for (int i = 0; i < pages.Length; i++) pages[i]?.Refresh(i == tab);
+        if (tab >= 0 && tab < pages.Length && tab != selected)
         {
-            if (tab != selected)
+            selected = tab;
+            // A tab without a rail button, such as the radial menu options, is a subpage of the last rail tab.
+            if (handler.m_tabs[tab].m_button) railSelected = tab;
+            heading.text = Localization.instance.Localize(names[tab] ?? "");
+            if (string.IsNullOrEmpty(heading.text)) heading.text = SubpageTitle(tab);
+            for (int i = 0; i < pages.Length; i++)
             {
-                selected = tab;
-                if (handler.m_tabs[tab].m_page)
-                    LayoutRebuilder.ForceRebuildLayoutImmediate(handler.m_tabs[tab].m_page);
-                if (handler.m_tabs[tab].m_page)
-                    foreach (var label in handler.m_tabs[tab].m_page.GetComponentsInChildren<TMP_Text>(false))
-                        label.ForceMeshUpdate();
-                heading.text = Localization.instance.Localize(names[tab] ?? "");
-                for (int i = 0; i < pages.Length; i++)
-                {
-                    var button = handler.m_tabs[i].m_button;
-                    if (button && button.targetGraphic is Image graphic) graphic.sprite = art[i == tab ? "selected" : "button"];
-                }
-                nextScan = 0;
+                var button = handler.m_tabs[i].m_button;
+                bool current = i == railSelected;
+                if (button && button.targetGraphic is Image graphic) graphic.sprite = art[current ? "selected" : "button"];
+                var label = button ? button.GetComponentInChildren<TMP_Text>(true) : null;
+                if (label) label.color = current ? ItemUi.Ink : ItemUi.Muted;
+                if (markers[i]) markers[i].enabled = current;
             }
-            pages[tab]?.Fit();
+            nextScan = 0;
+        }
+        for (int i = 0; i < pages.Length; i++)
+        {
+            var back = pages[i]?.Back;
+            if (!back) continue;
+            PlaceSubpageBack(back);
+            if (back.gameObject.activeSelf != (i == tab)) back.gameObject.SetActive(i == tab);
         }
         if (Time.unscaledTime < nextScan) return;
         nextScan = Time.unscaledTime + 0.2f;
         // Tabs can create additional rows and popups as input devices and settings change.
         style.Scan(frame);
-        if (tab < 0 || tab >= pages.Length || !handler.m_tabs[tab].m_page) return;
-        foreach (var label in handler.m_tabs[tab].m_page.GetComponentsInChildren<TMP_Text>(false))
+    }
+
+    // Opening a subpage such as the radial menu options shows its page without changing the handler's tab.
+    private int ActiveTab()
+    {
+        int tab = handler.GetActiveTab();
+        if (tab >= 0 && tab < pages.Length && handler.m_tabs[tab].m_page && handler.m_tabs[tab].m_page.gameObject.activeSelf)
+            return tab;
+        for (int i = 0; i < handler.m_tabs.Count; i++)
+            if (handler.m_tabs[i].m_page && handler.m_tabs[i].m_page.gameObject.activeSelf) return i;
+        return tab;
+    }
+
+    // The heading of a subpage repeats the caption of the button that opens it.
+    private string SubpageTitle(int tab)
+    {
+        var page = handler.m_tabs[tab].m_page;
+        if (!page) return "";
+        string key = page.name.Replace("Tab", "").ToLowerInvariant();
+        foreach (var button in frame.GetComponentsInChildren<Button>(true))
         {
-            if (!labels.Add(label)) continue;
-            var color = label.color;
-            if (color.r > 0.75f && color.g < color.r * 0.85f && color.b < 0.6f) style.Text(label, ItemUi.Ink);
+            if (button.name.Replace(" ", "").ToLowerInvariant().IndexOf(key, StringComparison.Ordinal) < 0) continue;
+            var label = button.GetComponentInChildren<TMP_Text>(true);
+            if (label && !string.IsNullOrWhiteSpace(label.text)) return label.text;
         }
+        return "";
+    }
+
+    // A subpage's own back button moves into the heading, where it stays visible above the list.
+    private void PlaceSubpageBack(Button back)
+    {
+        if (!placedBacks.Add(back)) return;
+        var rect = (RectTransform)back.transform;
+        bool wasActive = back.gameObject.activeSelf;
+        style.Remember(() => { if (back) back.gameObject.SetActive(wasActive); });
+        style.Remember(new MenuRect(rect).Restore);
+        Move(rect, headingBar);
+        rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(1, 0.5f);
+        rect.sizeDelta = new Vector2(120, 34);
+        rect.anchoredPosition = Vector2.zero;
+        style.Control(back);
+        style.Text(back.GetComponentInChildren<TMP_Text>(true), ItemUi.Ink, 15);
     }
 
     public void Dispose()
     {
         style.Dispose();
+        foreach (var page in pages) page?.Dispose();
         ItemUi.Destroy(frame);
     }
 }

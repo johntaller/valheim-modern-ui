@@ -17,7 +17,7 @@ internal sealed class Artwork : IDisposable
         {
             foreach (string name in new[] { "panel", "slot", "button", "selected", "map-frame", "item-card",
                 "reticle", "player-marker", "meter-fill", "quality-star", "pickup-ring", "disc",
-                "radial-shadow", "map-ornament", "shelter", "campfire", "weight", "player-portrait" })
+                "radial-shadow", "map-ornament", "shelter", "campfire", "weight", "player-portrait", "pill" })
             {
                 string path = Path.Combine(directory, name + ".png");
                 if (File.Exists(path))
@@ -44,7 +44,7 @@ internal sealed class Artwork : IDisposable
         try
         {
             if (!ImageConversion.LoadImage(texture, png, true)) throw new InvalidDataException("Invalid PNG");
-            int inset = name is "panel" or "slot" or "button" or "selected" or "map-frame" or "item-card" ? 12 : 0;
+            int inset = name is "panel" or "slot" or "button" or "selected" or "map-frame" or "item-card" or "pill" ? 12 : 0;
             if (texture.width <= inset * 2 || texture.height <= inset * 2) throw new InvalidDataException("Image too small for 12 px borders");
             texture.wrapMode = TextureWrapMode.Clamp;
             texture.filterMode = FilterMode.Bilinear;

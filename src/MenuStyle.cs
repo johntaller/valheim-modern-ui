@@ -21,6 +21,12 @@ internal sealed class MenuStyle : IDisposable
 
     internal void Remember(Action restore) => undo.Add(restore);
 
+    // Graphics the caller styled itself, which a later scan must not reskin.
+    internal void Claim(Graphic graphic)
+    {
+        if (graphic) visited.Add(graphic);
+    }
+
     internal void Hide(Graphic graphic)
     {
         if (!graphic) return;
@@ -46,7 +52,7 @@ internal sealed class MenuStyle : IDisposable
 
     internal void Sprite(Image image, string role, Color tint, bool force = false)
     {
-        if (!image || (!force && !visited.Add(image))) return;
+        if (!image || (!visited.Add(image) && !force)) return;
         var current = image.sprite;
         var type = image.type;
         var color = image.color;
