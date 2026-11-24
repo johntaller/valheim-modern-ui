@@ -104,6 +104,7 @@ public sealed class Plugin : BaseUnityPlugin
         }
         playerCards?.Refresh(theme.Enabled && harmony != null);
         if (harmony != null) EquipmentInventory.Refresh(theme.Enabled && !failedHud);
+        if (harmony != null) QuickSlotKeys.EnsureDefaults();
     }
 
     private void BeforeCanvasRender()

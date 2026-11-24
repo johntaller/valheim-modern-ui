@@ -36,6 +36,7 @@ internal sealed class CraftingMenu : IDisposable
     private readonly CharacterPage sheet;
     private readonly PlayersPage playersPage;
     private readonly InlinePage[] pages;
+    private readonly RecipeCard card;
     private readonly Button[] buttons;
     private readonly List<RectTransform> recipeRows = new();
     private readonly float spacing;
@@ -58,6 +59,7 @@ internal sealed class CraftingMenu : IDisposable
         recipeBaseHeight = RecipeBaseHeight(gui);
         gui.m_recipeListSpace = Mathf.Max(36, spacing);
         recipeScroll = gui.m_recipeListRoot.GetComponentInParent<ScrollRect>(true);
+        if (gui.m_recipeDecription && gui.m_recipeName) card = new RecipeCard(gui, style, art, font);
 
         var craft = gui.m_crafting;
         content = ItemUi.Rect(craft.parent, "NewUI_InventoryPage");
@@ -431,6 +433,7 @@ internal sealed class CraftingMenu : IDisposable
             RecipeBaseHeight(Gui) = recipeBaseHeight;
             if (Gui.m_uiGroups.Length > 2 && Gui.m_uiGroups[2]) Gui.m_uiGroups[2].m_defaultElement = originalDefault;
         }
+        card?.Dispose();
         style.Dispose();
         ItemUi.Destroy(tabs);
         ItemUi.Destroy(content);

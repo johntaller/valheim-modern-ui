@@ -628,7 +628,15 @@ internal sealed class SettingsPageView
             ItemUi.Stretch(item.Label.rectTransform, Vector2.zero, Vector2.zero);
             Restyle(item.Label, 15, ItemUi.Ink, TextAlignmentOptions.MidlineLeft, 11);
         }
-        Move(item.Control, row.Rect);
+        // Valheim looks for each key button under its own binding row when it opens the
+        // bind dialog, refreshes captions or closes, so the whole row moves into the cell.
+        var binding = item.Control.parent as RectTransform;
+        if (binding && binding != page && binding.GetComponentsInChildren<Selectable>(true).Length == 1)
+        {
+            Move(binding, row.Rect);
+            ItemUi.Stretch(binding, Vector2.zero, Vector2.zero);
+        }
+        else Move(item.Control, row.Rect);
         Pin(item.Control, 1, KeyWidth, 30);
         item.Control.anchoredPosition = new Vector2(-Inset, 0);
         foreach (var text in item.Control.GetComponentsInChildren<TMP_Text>(true))
