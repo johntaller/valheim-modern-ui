@@ -17,6 +17,8 @@ internal sealed class ItemInterface : IDisposable
     private readonly TMP_FontAsset font;
     private readonly OnlinePlayers players;
     private readonly QuickSlot[] quickSlots = new QuickSlot[QuickSlots];
+    private readonly QuickSlot[] sideSlots = new QuickSlot[EquipmentInventory.QuickSlotCount];
+    private float nextBindingLabels;
     private readonly Dictionary<Transform, NativeQuickSlot> nativeQuickSlots = new();
     private InventoryPanel panel;
     private CraftingMenu crafting;
@@ -29,8 +31,26 @@ internal sealed class ItemInterface : IDisposable
         this.font = font;
         this.players = players;
         var template = (RectTransform)hotbar.m_elementPrefab.transform;
+        float pitch = hotbar.m_elementSpace;
+        Vector2 size = template.rect.size;
         for (int i = 0; i < quickSlots.Length; i++)
-            quickSlots[i] = new QuickSlot(hotbarRoot, template, i, hotbar.m_elementSpace, art, font);
+            quickSlots[i] = new QuickSlot(hotbarRoot, template, "NewUI_QuickSlot" + (i + 1), size,
+                new Vector2(i * pitch, 0), 1, art, font, (i + 1).ToString());
+
+        // Quick slots sit after a wider gap and are a third smaller than hotbar cells.
+        const float ratio = 1 / 1.5f;
+        Vector2 small = size * ratio;
+        float spacing = Mathf.Max(2, (pitch - size.x) * ratio);
+        float gap = Mathf.Max(14, (pitch - size.x) * 3);
+        var pivot = template.pivot;
+        float right = (QuickSlots - 1) * pitch + (1 - pivot.x) * size.x;
+        float y = (0.5f - pivot.y) * (size.y - small.y);
+        for (int i = 0; i < sideSlots.Length; i++)
+        {
+            float left = right + gap + i * (small.x + spacing);
+            sideSlots[i] = new QuickSlot(hotbarRoot, template, "NewUI_SideSlot" + (i + 1), small,
+                new Vector2(left + pivot.x * small.x, y), ratio, art, font, "");
+        }
     }
 
     internal void Refresh(InventoryGui gui, Player player)
@@ -52,6 +72,8 @@ internal sealed class ItemInterface : IDisposable
         var inventory = alive ? player.GetInventory() : null;
         panel?.Refresh(open, player, quickSlots[0].Rect, hotbar.m_elementSpace);
         foreach (var slot in quickSlots) slot.SetVisible(alive);
+        bool sides = alive && EquipmentInventory.QuickRow(inventory) >= 0;
+        foreach (var slot in sideSlots) slot.SetVisible(sides);
 
         foreach (Transform child in hotbarRoot)
         {
@@ -71,6 +93,18 @@ internal sealed class ItemInterface : IDisposable
             var input = open ? panel.GetQuickTarget(i) : null;
             slot.Refresh(inventory?.GetItemAt(i, 0), player, bindings, input);
         }
+        if (sides)
+        {
+            if (Time.unscaledTime >= nextBindingLabels)
+            {
+                // Keys can change in the settings while the HUD stays open.
+                nextBindingLabels = Time.unscaledTime + 0.5f;
+                for (int i = 0; i < sideSlots.Length; i++) sideSlots[i].SetBinding(QuickSlotKeys.Label(i));
+            }
+            for (int i = 0; i < sideSlots.Length; i++)
+                sideSlots[i].Refresh(EquipmentInventory.QuickItem(inventory, i), player, bindings,
+                    open ? panel.GetSideTarget(i) : null);
+        }
 
         // Native buttons still handle the HUD gamepad/touch controls. Mirror
         // their selection into our persistent visuals while inventory is closed.
@@ -84,7 +118,11 @@ internal sealed class ItemInterface : IDisposable
             }
         }
 
-        if (open) panel.PositionQuickTargets(quickSlots);
+        if (open)
+        {
+            panel.PositionQuickTargets(quickSlots);
+            if (sides) panel.PositionSideTargets(sideSlots);
+        }
         if (nativeQuickSlots.Count > QuickSlots * 2)
         {
             var dead = new List<Transform>();
@@ -107,6 +145,7 @@ internal sealed class ItemInterface : IDisposable
         ReleasePanel();
         foreach (var entry in nativeQuickSlots.Values) entry.Hidden.Restore();
         foreach (var slot in quickSlots) ItemUi.Destroy(slot.Rect);
+        foreach (var slot in sideSlots) ItemUi.Destroy(slot.Rect);
     }
 
     private void ReleaseCrafting()
@@ -135,16 +174,19 @@ internal sealed class ItemInterface : IDisposable
         private readonly DurabilityEdge edge;
         private readonly TextMeshProUGUI binding, amount, cheated;
         private readonly ItemQualityBadge quality;
+        private readonly bool compact;
         private ItemDrop.ItemData lastItem;
         private int lastStack = -1;
 
-        internal QuickSlot(RectTransform parent, RectTransform template, int index, float pitch, Artwork art, TMP_FontAsset font)
+        internal QuickSlot(RectTransform parent, RectTransform template, string name, Vector2 size, Vector2 position,
+            float scale, Artwork art, TMP_FontAsset font, string key)
         {
-            Rect = ItemUi.Rect(parent, "NewUI_QuickSlot" + (index + 1));
+            compact = scale < 1;
+            Rect = ItemUi.Rect(parent, name);
             Rect.anchorMin = Rect.anchorMax = parent.pivot;
             Rect.pivot = template.pivot;
-            Rect.sizeDelta = template.rect.size;
-            Rect.anchoredPosition = new Vector2(index * pitch, 0);
+            Rect.sizeDelta = size;
+            Rect.anchoredPosition = position;
 
             var face = ItemUi.Image(Rect, "Face", art["slot"]);
             ItemUi.Stretch(face.rectTransform, Vector2.zero, Vector2.zero);
@@ -157,19 +199,27 @@ internal sealed class ItemInterface : IDisposable
             ItemUi.Stretch(selection.rectTransform, Vector2.zero, Vector2.zero);
             icon = ItemUi.Image(Rect, "ItemIcon");
             icon.preserveAspect = true;
-            ItemUi.Stretch(icon.rectTransform, new Vector2(8, 9), new Vector2(-8, -6));
+            ItemUi.Stretch(icon.rectTransform, new Vector2(8, 9) * scale, new Vector2(-8, -6) * scale);
 
-            binding = ItemUi.Text(Rect, "Binding", font, 15, ItemUi.Ink);
+            binding = ItemUi.Text(Rect, "Binding", font, scale < 1 ? 12 : 15, ItemUi.Ink);
             binding.fontStyle = FontStyles.Bold;
             binding.alignment = TextAlignmentOptions.TopLeft;
-            ItemUi.Stretch(binding.rectTransform, new Vector2(7, 0), new Vector2(0, -4));
-            binding.text = (index + 1).ToString();
+            // Rebound keys such as "Left Shift" shrink to the slot width.
+            binding.textWrappingMode = TextWrappingModes.NoWrap;
+            binding.overflowMode = TextOverflowModes.Ellipsis;
+            binding.enableAutoSizing = true;
+            binding.fontSizeMin = 8;
+            binding.fontSizeMax = binding.fontSize;
+            ItemUi.Stretch(binding.rectTransform, new Vector2(7 * scale, 0), new Vector2(-3, -4 * scale));
+            binding.text = key;
 
-            amount = ItemUi.Text(Rect, "Stack", font, 14, ItemUi.Ink);
+            amount = ItemUi.Text(Rect, "Stack", font, scale < 1 ? 11 : 14, ItemUi.Ink);
             amount.fontStyle = FontStyles.Bold;
             amount.alignment = TextAlignmentOptions.Bottom;
-            ItemUi.Stretch(amount.rectTransform, new Vector2(2, 5), new Vector2(-2, 0));
+            amount.textWrappingMode = TextWrappingModes.NoWrap;
+            ItemUi.Stretch(amount.rectTransform, new Vector2(2, 5 * scale), new Vector2(-2, 0));
             cheated = MakeCheatBadge(Rect, font, hotbar: true);
+            if (compact) cheated.fontSize = 15;
             quality = new ItemQualityBadge(Rect, art, font);
             edge = MakeDurability(Rect);
         }
@@ -177,6 +227,11 @@ internal sealed class ItemInterface : IDisposable
         internal void SetVisible(bool value)
         {
             if (Rect.gameObject.activeSelf != value) Rect.gameObject.SetActive(value);
+        }
+
+        internal void SetBinding(string key)
+        {
+            if (binding.text != key) binding.text = key;
         }
 
         internal void Refresh(ItemDrop.ItemData item, Player player, bool bindings, InventoryElement target)
@@ -193,7 +248,8 @@ internal sealed class ItemInterface : IDisposable
             equipped.enabled = item != null && (item.m_equipped || player.IsEquipActionQueued(item));
             SetFocused(target && target.m_selected && target.m_selected.activeSelf);
             cheated.enabled = item?.m_cheated == true;
-            quality.Refresh(item);
+            // The small quick slots keep their corners for the key and the stack size.
+            quality.Refresh(compact ? null : item);
             amount.enabled = item != null && item.m_shared.m_maxStackSize > 1;
             if (amount.enabled && lastStack != item.m_stack)
             {
@@ -255,6 +311,8 @@ internal sealed class ItemInterface : IDisposable
         private readonly Dictionary<InventoryElement, BagSlot> cells = new();
         private readonly List<InventoryElement> deadCells = new();
         private readonly BagSlot[] row = new BagSlot[QuickSlots];
+        private readonly BagSlot[] sideRow = new BagSlot[EquipmentInventory.QuickSlotCount];
+        private readonly List<BagSlot> sideCells = new();
         private readonly SortedDictionary<int, BagSlot> gear = new();
         private readonly ItemTooltip tooltip;
         private readonly InventoryActions actions;
@@ -347,6 +405,8 @@ internal sealed class ItemInterface : IDisposable
 
         internal InventoryElement GetQuickTarget(int index) => row[index]?.Element;
 
+        internal InventoryElement GetSideTarget(int index) => sideRow[index]?.Element;
+
         internal void Refresh(bool open, Player player, RectTransform firstQuickSlot, float pitch)
         {
             actions.Refresh(open);
@@ -408,17 +468,18 @@ internal sealed class ItemInterface : IDisposable
                     hoverItem = item;
                 }
             }
-            for (int i = 0; i < row.Length; i++)
-            {
-                var slot = row[i];
-                if (slot == null || !slot.Element) continue;
-                var item = slot.Item;
-                if (slot.Element.m_tooltip == currentTooltip)
+            foreach (var slot in row)
+                if (slot != null && slot.Element && slot.Element.m_tooltip == currentTooltip)
                 {
                     hover = slot.Element;
-                    hoverItem = item;
+                    hoverItem = slot.Item;
                 }
-            }
+            foreach (var slot in sideRow)
+                if (slot != null && slot.Element && slot.Element.m_tooltip == currentTooltip)
+                {
+                    hover = slot.Element;
+                    hoverItem = slot.Item;
+                }
             foreach (var pair in cells)
                 if (!pair.Key) deadCells.Add(pair.Key);
             foreach (var dead in deadCells) cells.Remove(dead);
@@ -542,14 +603,21 @@ internal sealed class ItemInterface : IDisposable
                 bool playerGrid = grid == Gui.m_playerGrid;
                 bool quick = playerGrid && position.y == 0 && position.x >= 0 && position.x < row.Length;
                 bool equipped = playerGrid && position.y == equipmentRow;
+                bool side = playerGrid && equipmentRow >= 0 && position.y == equipmentRow + 1;
                 if (!cells.TryGetValue(element, out var slot))
                 {
-                    slot = new BagSlot(element, grid, art, font, quick ? rowHost : null, equipped ? equipment : null);
+                    slot = new BagSlot(element, grid, art, font, quick || side ? rowHost : null, equipped ? equipment : null);
                     cells.Add(element, slot);
                     if (quick) row[position.x] = slot;
                     if (equipped) gear[position.x] = slot;
+                    if (side)
+                    {
+                        sideCells.Add(slot);
+                        if (position.x < sideRow.Length) sideRow[position.x] = slot;
+                        else slot.Park();
+                    }
                 }
-                if (equipped) continue;
+                if (equipped || side) continue;
                 var item = inventory.GetItemAt(position.x, position.y);
                 if (!quick) slot.Refresh(item);
                 int startRow = playerGrid ? 1 : 0;
@@ -661,11 +729,15 @@ internal sealed class ItemInterface : IDisposable
             weightValue.text = $"{rounded} / {roundedMax}";
         }
 
-        internal void PositionQuickTargets(QuickSlot[] slots)
+        internal void PositionQuickTargets(QuickSlot[] slots) => PositionTargets(row, slots);
+
+        internal void PositionSideTargets(QuickSlot[] slots) => PositionTargets(sideRow, slots);
+
+        private static void PositionTargets(BagSlot[] cells, QuickSlot[] slots)
         {
-            for (int i = 0; i < row.Length; i++)
+            for (int i = 0; i < cells.Length; i++)
             {
-                var slot = row[i];
+                var slot = cells[i];
                 if (slot == null || !slot.Element) continue;
                 var source = slots[i].Rect;
                 var target = (RectTransform)slot.Element.transform;
@@ -699,6 +771,7 @@ internal sealed class ItemInterface : IDisposable
             tooltip.Dispose();
             // Reinsert the detached cells in their original sibling order.
             foreach (var slot in row) slot?.Dispose();
+            foreach (var slot in sideCells) slot.Dispose();
             foreach (var slot in gear.Values) slot.Dispose();
             foreach (var slot in cells.Values)
                 if (!slot.IsDetached) slot.Dispose();
@@ -829,6 +902,13 @@ internal sealed class ItemInterface : IDisposable
             cheated = MakeCheatBadge(rect, font, hotbar: false);
             quality = new ItemQualityBadge(rect, art, font, element.m_quality);
             edge = MakeDurability(rect);
+        }
+
+        // Cells of the quick slot row past the third slot are not shown anywhere.
+        internal void Park()
+        {
+            hidden?.SetRaycasts(false);
+            rect.anchoredPosition = new Vector2(-10000, 0);
         }
 
         internal void Refresh(ItemDrop.ItemData item)
