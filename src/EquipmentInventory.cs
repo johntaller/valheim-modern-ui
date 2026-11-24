@@ -9,8 +9,12 @@ namespace ValheimNewUI;
 internal static class EquipmentInventory
 {
     internal const int SlotCount = 6;
+    internal const int QuickSlotCount = 3;
+    // The equipment row and the quick slot row follow the backpack.
+    private const int ExtraRows = 2;
     private const int MaxBackpackRows = 9;
     private const string OriginalRowsKey = "valheimnewui_base_rows";
+    private const string QuickSlotsKey = "valheimnewui_quick_slots";
     private static readonly ItemType[] SlotTypes =
     {
         ItemType.Helmet, ItemType.Chest, ItemType.Legs, ItemType.Shoulder, ItemType.Utility, ItemType.Trinket
@@ -29,8 +33,17 @@ internal static class EquipmentInventory
     private static bool recoveryBlocked;
     private static bool enabledInWorld, spawning;
     private static Item upgrading;
+    private static bool dropping;
 
     internal static int ReservedRow(Inventory inventory) => active != null && inventory == active ? rows : -1;
+
+    internal static int QuickRow(Inventory inventory) => active != null && inventory == active ? rows + 1 : -1;
+
+    internal static Item QuickItem(Inventory inventory, int slot)
+    {
+        int row = QuickRow(inventory);
+        return row < 0 || slot < 0 || slot >= QuickSlotCount ? null : inventory.GetItemAt(slot, row);
+    }
 
     internal static void Refresh(bool enabled)
     {
@@ -43,9 +56,11 @@ internal static class EquipmentInventory
         }
 
         var inventory = player.GetInventory();
-        if (!TryReadBackpackRows(player, out int original) || inventory.GetHeight() != original + 1)
+        bool stored = TryReadBackpackRows(player, out int original);
+        if (!stored || inventory.GetHeight() != original + ExtraRows)
         {
-            original = inventory.GetHeight();
+            // Earlier versions reserved a single row after the backpack.
+            if (!stored || inventory.GetHeight() != original + 1) original = inventory.GetHeight();
             if (enabled && original >= 1 && original <= MaxBackpackRows && inventory.GetWidth() >= SlotCount)
                 Resize(player, inventory, original);
             else
@@ -90,9 +105,17 @@ internal static class EquipmentInventory
 
         // Repack before the native invalid-item sweep. Equipped items retain their
         // actual ItemData and equipped state across both growth and shrinkage.
+        int quickRow = backpackRows + 1, parked = backpackRows + ExtraRows;
+        // While spawning, the saved backpack size is the one being restored.
+        int previousQuick = spawning ? backpackRows + 1 : active == inventory ? rows + 1 : -1;
+        var quick = new List<Item>();
         foreach (var item in items)
-            if (EquipmentSlot(item) >= 0 || item.m_gridPos.y >= backpackRows)
-                item.m_gridPos = new Vector2i(item.m_gridPos.x, backpackRows + 1);
+            if (item.m_gridPos.y == previousQuick && item.m_gridPos.x < QuickSlotCount && EquipmentSlot(item) < 0)
+                quick.Add(item);
+        foreach (var item in items)
+            if (!quick.Contains(item) && (EquipmentSlot(item) >= 0 || item.m_gridPos.y >= backpackRows))
+                item.m_gridPos = new Vector2i(item.m_gridPos.x, parked);
+        foreach (var item in quick) item.m_gridPos = new Vector2i(item.m_gridPos.x, quickRow);
         foreach (var item in items)
         {
             int slot = EquipmentSlot(item);
@@ -101,19 +124,19 @@ internal static class EquipmentInventory
         }
         foreach (var item in items)
         {
-            if (!item.m_shared.m_questItem || item.m_gridPos.y <= backpackRows) continue;
+            if (!item.m_shared.m_questItem || item.m_gridPos.y != parked) continue;
             var free = FindBackpackSlot(inventory, backpackRows, false);
             if (free.x < 0)
             {
                 var regular = items.Find(other => !other.m_shared.m_questItem && other.m_gridPos.y < backpackRows);
                 free = regular.m_gridPos;
-                regular.m_gridPos = new Vector2i(free.x, backpackRows + 1);
+                regular.m_gridPos = new Vector2i(free.x, parked);
             }
             item.m_gridPos = free;
         }
         foreach (var item in items)
         {
-            if (item.m_gridPos.y <= backpackRows) continue;
+            if (item.m_gridPos.y != parked) continue;
             var free = FindBackpackSlot(inventory, backpackRows, false);
             if (free.x < 0) break;
             item.m_gridPos = free;
@@ -123,11 +146,28 @@ internal static class EquipmentInventory
         active = inventory;
         rows = backpackRows;
         recoveryBlocked = false;
-        inventory.SetHeight(rows + 1);
+        inventory.SetHeight(rows + ExtraRows);
+        if (spawning) RestoreQuickSlots(player, inventory, rows + 1);
         player.AddUniqueKeyValue(OriginalRowsKey, rows.ToString());
         player.AddUniqueKeyValue("invrows", rows.ToString());
-        InventoryGui.instance.SetInventorySize(rows + 1);
+        InventoryGui.instance.SetInventorySize(rows + ExtraRows);
         player.DropInvalidItems();
+    }
+
+    // Saves keep quick slot items in ordinary backpack cells. The key records
+    // which of those cells return to which quick slot on the next spawn.
+    private static void RestoreQuickSlots(Player player, Inventory inventory, int quickRow)
+    {
+        if (!player.TryGetUniqueKeyValue(QuickSlotsKey, out var stored)) return;
+        foreach (var entry in stored.Split(','))
+        {
+            var parts = entry.Split(':');
+            if (parts.Length != 3 || !int.TryParse(parts[0], out int slot) || !int.TryParse(parts[1], out int x)
+                || !int.TryParse(parts[2], out int y) || slot < 0 || slot >= QuickSlotCount) continue;
+            var item = inventory.GetItemAt(x, y);
+            if (item == null || y >= quickRow - 1 || EquipmentSlot(item) >= 0 || inventory.GetItemAt(slot, quickRow) != null) continue;
+            item.m_gridPos = new Vector2i(slot, quickRow);
+        }
     }
 
     private static void PlaceEquipment(Inventory inventory)
@@ -140,8 +180,9 @@ internal static class EquipmentInventory
             if (occupant == item) continue;
             if (occupant != null)
             {
-                // A replacement uses the incoming item's previous backpack cell.
-                var position = item.m_gridPos.y < rows ? item.m_gridPos : FindBackpackSlot(inventory, rows, false);
+                // A replacement uses the incoming item's previous backpack or quick slot cell.
+                bool quickCell = item.m_gridPos.y == rows + 1 && item.m_gridPos.x < QuickSlotCount;
+                var position = item.m_gridPos.y < rows || quickCell ? item.m_gridPos : FindBackpackSlot(inventory, rows, false);
                 if (position.x < 0) continue;
                 occupant.m_gridPos = position;
             }
@@ -150,7 +191,9 @@ internal static class EquipmentInventory
 
         foreach (var item in inventory.GetAllItems())
         {
-            if (item.m_gridPos.y != rows || item.m_equipped) continue;
+            bool loose = item.m_gridPos.y == rows && !item.m_equipped
+                || item.m_gridPos.y == rows + 1 && item.m_gridPos.x >= QuickSlotCount;
+            if (!loose) continue;
             var position = FindBackpackSlot(inventory, rows, false);
             if (position.x >= 0) item.m_gridPos = position;
         }
@@ -188,6 +231,7 @@ internal static class EquipmentInventory
         // Valheim drops any remaining out-of-bounds items and clears their equipped state.
         player.SetInventorySize(baseRows);
         player.RemoveUniqueKeyValue(OriginalRowsKey);
+        player.RemoveUniqueKeyValue(QuickSlotsKey);
         recoveryBlocked = false;
     }
 
@@ -255,14 +299,19 @@ internal static class EquipmentInventory
             if (reserved < 0) return;
             // Save into ordinary free cells whenever possible. When the DLL is
             // removed, Valheim drops only the overflow on its next spawn.
+            string quick = "";
             foreach (var item in inventory.GetAllItems())
             {
-                if (item.m_gridPos.y != reserved) continue;
+                if (item.m_gridPos.y < reserved) continue;
                 var free = FindBackpackSlot(inventory, reserved, false);
                 if (free.x < 0) break;
+                if (item.m_gridPos.y == reserved + 1)
+                    quick += (quick.Length > 0 ? "," : "") + $"{item.m_gridPos.x}:{free.x}:{free.y}";
                 (__state ??= new()).Add((item, item.m_gridPos));
                 item.m_gridPos = free;
             }
+            if (quick.Length > 0) __instance.AddUniqueKeyValue(QuickSlotsKey, quick);
+            else __instance.RemoveUniqueKeyValue(QuickSlotsKey);
         }
 
         private static void Finalizer(List<(Item Item, Vector2i Position)> __state)
@@ -320,7 +369,8 @@ internal static class EquipmentInventory
     private static class AddAtCell
     {
         // Take-all and other native bulk moves can also request explicit coordinates.
-        private static bool Prefix(Inventory __instance, int y) => ReservedRow(__instance) != y || y < 0;
+        private static bool Prefix(Inventory __instance, int y) =>
+            y < 0 || ReservedRow(__instance) != y && (QuickRow(__instance) != y || dropping);
     }
 
     [HarmonyPatch(typeof(InventoryGui), "DoCrafting")]
@@ -355,6 +405,8 @@ internal static class EquipmentInventory
             int reserved = ReservedRow(__instance.GetInventory());
             if (reserved >= 0 && ___m_selected.y == reserved && ___m_selected.x >= SlotCount)
                 ___m_selected.x = SlotCount - 1;
+            if (reserved >= 0 && ___m_selected.y == reserved + 1 && ___m_selected.x >= QuickSlotCount)
+                ___m_selected.x = QuickSlotCount - 1;
         }
     }
 
@@ -366,6 +418,10 @@ internal static class EquipmentInventory
             var inventory = grid.GetInventory();
             bool gearCell = pos.y >= 0 && ReservedRow(inventory) == pos.y;
             if (gearCell && (pos.x < 0 || pos.x >= SlotCount)) return false;
+            bool quickCell = pos.y >= 0 && QuickRow(inventory) == pos.y;
+            if (quickCell && (pos.x < 0 || pos.x >= QuickSlotCount)) return false;
+            // Quick slots accept any item through the native drop and swap rules.
+            dropping = quickCell;
 
             var dragged = DragItem(__instance);
             if (dragged == null || active == null) return true;
@@ -397,5 +453,7 @@ internal static class EquipmentInventory
             SetupDrag(__instance, null, null, 1);
             return false;
         }
+
+        private static void Finalizer() => dropping = false;
     }
 }

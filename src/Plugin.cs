@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace ValheimNewUI;
 
-[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.11")]
+[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.1.0")]
 public sealed class Plugin : BaseUnityPlugin
 {
     private string themePath, lastContent, lastReadError;
@@ -104,6 +104,7 @@ public sealed class Plugin : BaseUnityPlugin
         }
         playerCards?.Refresh(theme.Enabled && harmony != null);
         if (harmony != null) EquipmentInventory.Refresh(theme.Enabled && !failedHud);
+        if (harmony != null) QuickSlotKeys.EnsureDefaults();
     }
 
     private void BeforeCanvasRender()
