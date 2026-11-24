@@ -15,19 +15,15 @@ internal sealed class PlayerCardSync : IDisposable
     private const int CharacterIdBytes = sizeof(long) + sizeof(uint);
     private const int StatusBytes = CharacterIdBytes + 5 * sizeof(int) + 2 * sizeof(bool);
     private const int PortraitPacketBytes = CharacterIdBytes + sizeof(int) + PortraitBytes;
-    private static readonly AccessTools.FieldRef<FejdStartup, List<PlayerProfile>> Profiles =
-        AccessTools.FieldRefAccess<FejdStartup, List<PlayerProfile>>("m_profiles");
-    private static readonly AccessTools.FieldRef<FejdStartup, int> ProfileIndex =
-        AccessTools.FieldRefAccess<FejdStartup, int>("m_profileIndex");
 
     private readonly Dictionary<long, Snapshot> remote = new();
     private readonly List<long> expired = new();
     private readonly PortraitCamera camera;
     private ZRoutedRpc route;
     private byte[] portrait;
-    private Player preview;
+    private Player subject;
     private long portraitProfile;
-    private float nextSend, nextCapture;
+    private float nextSend, nextCapture, settledAt;
     private bool active;
 
     internal PlayerCardSync(Transform parent)
@@ -44,7 +40,9 @@ internal sealed class PlayerCardSync : IDisposable
         if (!enabled || !net)
         {
             if (remote.Count > 0) ClearRemote();
-            if (enabled) CapturePreview();
+            // Each session captures the character as it currently looks in the world.
+            portrait = null;
+            subject = null;
             return;
         }
 
@@ -68,7 +66,12 @@ internal sealed class PlayerCardSync : IDisposable
         if (player && !player.GetZDOID().IsNone() && net.GetPlayerList().Count > 1)
         {
             long profile = Game.instance.GetPlayerProfile().GetPlayerID();
-            if ((portrait == null || portraitProfile != profile) && now >= nextCapture && !player.IsDead())
+            if (subject != player)
+            {
+                subject = player;
+                settledAt = now + 4;
+            }
+            if ((portrait == null || portraitProfile != profile) && now >= nextCapture && now >= settledAt && IsPosed(player))
             {
                 nextCapture = now + 2;
                 portrait = camera.Capture(player, PortraitSize);
@@ -87,29 +90,11 @@ internal sealed class PlayerCardSync : IDisposable
         expired.Clear();
     }
 
-    private void CapturePreview()
-    {
-        var startup = FejdStartup.instance;
-        if (!startup || !startup.m_characterSelectScreen.activeInHierarchy || !startup.m_selectCharacterPanel.activeInHierarchy)
-        {
-            preview = null;
-            return;
-        }
-        var profiles = Profiles(startup);
-        int index = ProfileIndex(startup);
-        var player = startup.GetPreviewPlayer();
-        if (!player || profiles == null || index < 0 || index >= profiles.Count) return;
-        long profile = profiles[index].GetPlayerID();
-        if (preview != player)
-        {
-            preview = player;
-            nextCapture = Time.unscaledTime + 0.35f;
-        }
-        if (Time.unscaledTime < nextCapture || (portrait != null && portraitProfile == profile)) return;
-        nextCapture = Time.unscaledTime + 2;
-        portrait = camera.Capture(player, PortraitSize);
-        portraitProfile = profile;
-    }
+    // A portrait taken mid-swing, asleep or during the intro shows a weapon or the back of the head.
+    private static bool IsPosed(Player player) =>
+        !player.IsDead() && !player.InIntro() && !player.InCutscene() && !player.IsTeleporting() && !player.InBed()
+        && !player.IsSleeping() && !player.InAttack() && !player.InDodge() && !player.IsStaggering()
+        && !player.InEmote() && !player.IsAttached() && !player.InPlaceMode() && player.IsOnGround();
 
     private void Publish(Player player, bool withPortrait)
     {

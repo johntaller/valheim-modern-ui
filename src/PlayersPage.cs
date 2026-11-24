@@ -116,10 +116,15 @@ internal sealed class PlayersPage
             portrait.enabled = player.Portrait;
             portrait.color = player.Dead ? new Color32(115, 110, 110, 255) : Color.white;
             silhouette.enabled = !portrait.enabled;
-            string distance = player.Distance is float meters ? $"{meters:0} " + MenuStyle.Translate("m", "м") : "—";
-            string biome = player.Biome is Heightmap.Biome area && area != Heightmap.Biome.None
-                ? Localization.instance.Localize("$biome_" + area.ToString().ToLowerInvariant()) : "—";
-            location.text = $"{distance}   ·   {biome}" + (player.Dead ? "   ·   " + MenuStyle.Translate("Dead", "Погиб") : "");
+            var parts = new List<string>(3)
+            {
+                player.Distance is float meters ? $"{meters:0} " + MenuStyle.Translate("m", "м") : "—"
+            };
+            // The biome of a distant, unloaded area is unknown; a lone dash there reads as missing data.
+            if (player.Biome is Heightmap.Biome area && area != Heightmap.Biome.None)
+                parts.Add(Localization.instance.Localize("$biome_" + area.ToString().ToLowerInvariant()));
+            if (player.Dead) parts.Add(MenuStyle.Translate("Dead", "Погиб"));
+            location.text = string.Join("   ·   ", parts);
             string skill = player.Skill == Skills.SkillType.None ? "—"
                 : Localization.instance.Localize("$skill_" + player.Skill.ToString().ToLowerInvariant()) + $" {player.SkillLevel:0.#}";
             metrics.text = string.Format(MenuStyle.Translate("Armor {0}    Best skill {1}", "Броня {0}    Лучший навык {1}"),
