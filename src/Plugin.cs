@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace ValheimNewUI;
 
-[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.10")]
+[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.0.11")]
 public sealed class Plugin : BaseUnityPlugin
 {
     private string themePath, lastContent, lastReadError;
@@ -14,6 +14,7 @@ public sealed class Plugin : BaseUnityPlugin
     private float nextRead;
     private Hud owner, failedHud;
     private Artwork artwork;
+    private PlayerCardSync playerCards;
     private InterfaceSkin skin;
     private SettingsMenu settingsMenu;
     private SelectionMenus selectionMenus;
@@ -52,6 +53,7 @@ public sealed class Plugin : BaseUnityPlugin
             Logger.LogError($"Could not install UI hooks: {ex}");
         }
         ReloadTheme();
+        playerCards = new PlayerCardSync(transform);
     }
 
     private void ReloadTheme()
@@ -83,6 +85,7 @@ public sealed class Plugin : BaseUnityPlugin
         if (theme.Enabled) skin?.Apply(theme);
         else
         {
+            InventoryTooltipPopup.Restore();
             ReleaseMenus();
             Release();
         }
@@ -99,6 +102,7 @@ public sealed class Plugin : BaseUnityPlugin
             nextRead = Time.unscaledTime + 0.75f;
             ReloadTheme();
         }
+        playerCards?.Refresh(theme.Enabled && harmony != null);
         if (harmony != null) EquipmentInventory.Refresh(theme.Enabled && !failedHud);
     }
 
@@ -112,7 +116,7 @@ public sealed class Plugin : BaseUnityPlugin
         {
             if (skin == null)
             {
-                skin = new InterfaceSkin(hud, artwork);
+                skin = new InterfaceSkin(hud, artwork, playerCards);
                 owner = hud;
                 NativeMessagePatch.SetEnabled(harmony != null);
                 Logger.LogInfo("HUD attached.");
@@ -203,6 +207,7 @@ public sealed class Plugin : BaseUnityPlugin
     {
         NativeMessagePatch.SetEnabled(false);
         harmony?.UnpatchSelf();
+        playerCards?.Dispose();
         artwork?.Dispose();
     }
 

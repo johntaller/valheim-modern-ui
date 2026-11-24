@@ -120,13 +120,28 @@ internal sealed class MapHud : IDisposable
         {
             RefreshMap(map, pins, size);
             rest.Refresh(player);
-            compass.Refresh(player, pins, VisibleTypes?.GetValue(map) as bool[],
+            compass.Refresh(player, pins, FindLastDeathPin(pins), VisibleTypes?.GetValue(map) as bool[],
                 SharedFade?.GetValue(map) is float fade ? fade : 0, highlightDistance);
         }
         else
         {
             compass.Hide();
         }
+    }
+
+    private static Minimap.PinData FindLastDeathPin(List<Minimap.PinData> pins)
+    {
+        var profile = Game.instance ? Game.instance.GetPlayerProfile() : null;
+        if (pins == null || profile == null || !profile.HaveDeathPoint()) return null;
+
+        Vector3 death = profile.GetDeathPoint();
+        for (int i = pins.Count - 1; i >= 0; i--)
+        {
+            var pin = pins[i];
+            if (pin.m_type != Minimap.PinType.Death || pin.m_ownerID != 0 || pin.m_shouldDelete) continue;
+            if (Utils.DistanceXZ(pin.m_pos, death) < 1) return pin;
+        }
+        return null;
     }
 
     private void RefreshMap(Minimap map, List<Minimap.PinData> pins, float size)

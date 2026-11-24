@@ -15,7 +15,11 @@ internal sealed class StatusEffectHud : IDisposable
     private readonly Canvas canvas;
     private readonly HiddenGraphics nativeEffects;
     private readonly List<StatusEffect> effects = new();
-    private readonly List<StatusEffect> harmful = new(), other = new();
+    private readonly List<StatusEffect> ordered = new(), harmful = new(), other = new();
+    private readonly TextMeshProUGUI overflow;
+    private readonly Image overflowShadow;
+    private StatusEffect newest;
+    private bool followNewest;
     private readonly Row[] rows = new Row[VisibleRows];
     private int lastInputFrame = -1, firstRow;
     private bool dragging;
@@ -30,6 +34,8 @@ internal sealed class StatusEffectHud : IDisposable
         var shadows = ItemUi.Rect(root, "RowShadows");
         ItemUi.Stretch(shadows, Vector2.zero, Vector2.zero);
         for (int i = 0; i < rows.Length; i++) rows[i] = new Row(root, shadows, art, hud.m_healthText.font);
+        overflowShadow = HudStyle.Shadow(root, art, 0.66f);
+        overflow = ItemUi.Text(root, "HiddenEffects", hud.m_healthText.font, 13, ItemUi.Muted);
         var track = ItemUi.Image(root, "EffectsScrollbar", art["meter-fill"]);
         track.color = new Color32(43, 36, 27, 244);
         rail = track.rectTransform;
@@ -43,14 +49,20 @@ internal sealed class StatusEffectHud : IDisposable
     {
         effects.Clear();
         player.GetSEMan().GetHUDStatusEffects(effects);
-        harmful.Clear();
-        other.Clear();
+        effects.RemoveAll(effect => effect.m_hidden || effect.NameHash() == SEMan.s_statusEffectEncumbered
+            || RestHud.HasDedicatedSlot(effect.NameHash()));
+        ordered.RemoveAll(effect => !effects.Contains(effect));
         foreach (var effect in effects)
         {
-            int hash = effect.NameHash();
-            if (effect.m_hidden || hash == SEMan.s_statusEffectEncumbered || RestHud.HasDedicatedSlot(hash)) continue;
-            (IsHarmful(effect, hash) ? harmful : other).Add(effect);
+            if (ordered.Contains(effect)) continue;
+            ordered.Add(effect);
+            newest = effect;
+            followNewest = true;
         }
+        harmful.Clear();
+        other.Clear();
+        foreach (var effect in ordered)
+            (IsHarmful(effect, effect.NameHash()) ? harmful : other).Add(effect);
         float nextWidth = 0;
         foreach (var effect in harmful) nextWidth = Mathf.Max(nextWidth, rows[0].Measure(effect));
         foreach (var effect in other) nextWidth = Mathf.Max(nextWidth, rows[0].Measure(effect));
@@ -64,7 +76,23 @@ internal sealed class StatusEffectHud : IDisposable
         root.gameObject.SetActive(count > 0);
         int lastRow = Mathf.Max(0, count - VisibleRows);
         bool canScroll = inventory && lastRow > 0;
+        overflow.enabled = overflowShadow.enabled = !inventory && lastRow > 0;
+        if (overflow.enabled)
+        {
+            overflow.SetText("+{0}", lastRow);
+            ItemUi.TopLeft(overflow.rectTransform, 11, Pitch * VisibleRows, 50, 18);
+            ItemUi.TopLeft(overflowShadow.rectTransform, -46, Pitch * VisibleRows - 14, 141, 46);
+        }
+        if (inventory && followNewest)
+        {
+            int latestIndex = harmful.IndexOf(newest);
+            int otherIndex = other.IndexOf(newest);
+            if (otherIndex >= 0) latestIndex = harmful.Count + otherIndex;
+            if (latestIndex >= 0) firstRow = Mathf.Max(0, latestIndex - VisibleRows + 1);
+            followNewest = false;
+        }
         rail.gameObject.SetActive(canScroll);
+        root.anchoredPosition = new Vector2(184, inventory ? 28 : -7);
         surface.color = inventory ? new Color32(20, 18, 16, 210) : Color.clear;
         if (canScroll)
         {
@@ -75,15 +103,26 @@ internal sealed class StatusEffectHud : IDisposable
         }
         else
         {
-            firstRow = 0;
+            if (inventory) firstRow = 0;
             dragging = false;
         }
         for (int i = 0; i < rows.Length; i++)
         {
+            if (i >= count)
+            {
+                rows[i].Hide();
+                continue;
+            }
             int index = firstRow + i;
+            if (!inventory)
+            {
+                // Keep harmful effects above the newest entries from each group.
+                int harmfulRows = Mathf.Min(harmful.Count, VisibleRows);
+                index = i < harmfulRows ? harmful.Count - harmfulRows + i
+                    : Mathf.Max(harmful.Count, lastRow + harmfulRows) + i - harmfulRows;
+            }
             bool negative = index < harmful.Count;
-            if (index >= count) rows[i].Hide();
-            else rows[i].Refresh(negative ? harmful[index] : other[index - harmful.Count], negative, width, i);
+            rows[i].Refresh(negative ? harmful[index] : other[index - harmful.Count], negative, width, i);
         }
     }
 
