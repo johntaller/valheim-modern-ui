@@ -170,7 +170,8 @@ internal sealed class ItemInterface : IDisposable
     private sealed class QuickSlot
     {
         internal readonly RectTransform Rect;
-        private readonly Image icon, selection, equipped;
+        private static readonly Color32 EquippedTint = new(168, 255, 222, 255);
+        private readonly Image icon, selection, equipped, equippedGlow;
         private readonly DurabilityEdge edge;
         private readonly TextMeshProUGUI binding, amount, cheated;
         private readonly ItemQualityBadge quality;
@@ -191,7 +192,12 @@ internal sealed class ItemInterface : IDisposable
             var face = ItemUi.Image(Rect, "Face", art["slot"]);
             ItemUi.Stretch(face.rectTransform, Vector2.zero, Vector2.zero);
             equipped = ItemUi.Image(Rect, "Equipped", art["selected"]);
-            equipped.color = new Color32(112, 189, 160, 210);
+            equipped.color = EquippedTint;
+            // A second frame just inside the first doubles the line, so the equipped slot reads at a glance
+            // without tinting the quality backlight.
+            equippedGlow = ItemUi.Image(Rect, "EquippedInner", art["selected"]);
+            equippedGlow.color = new Color32(150, 255, 214, 170);
+            ItemUi.Stretch(equippedGlow.rectTransform, Vector2.one * 2, Vector2.one * -2);
             ItemUi.Stretch(equipped.rectTransform, Vector2.zero, Vector2.zero);
 
             selection = ItemUi.Image(Rect, "Focus", art["selected"]);
@@ -220,7 +226,7 @@ internal sealed class ItemInterface : IDisposable
             ItemUi.Stretch(amount.rectTransform, new Vector2(2, 5 * scale), new Vector2(-2, 0));
             cheated = MakeCheatBadge(Rect, font, hotbar: true);
             if (compact) cheated.fontSize = 15;
-            quality = new ItemQualityBadge(Rect, art, font);
+            quality = new ItemQualityBadge(Rect, art, font, null, icon);
             edge = MakeDurability(Rect);
         }
 
@@ -245,11 +251,10 @@ internal sealed class ItemInterface : IDisposable
                 lastStack = -1;
             }
             icon.color = target && target.m_used ? target.m_icon.color : Color.white;
-            equipped.enabled = item != null && (item.m_equipped || player.IsEquipActionQueued(item));
+            equipped.enabled = equippedGlow.enabled = item != null && (item.m_equipped || player.IsEquipActionQueued(item));
             SetFocused(target && target.m_selected && target.m_selected.activeSelf);
             cheated.enabled = item?.m_cheated == true;
-            // The small quick slots keep their corners for the key and the stack size.
-            quality.Refresh(compact ? null : item);
+            quality.Refresh(item);
             amount.enabled = item != null && item.m_shared.m_maxStackSize > 1;
             if (amount.enabled && lastStack != item.m_stack)
             {
@@ -900,7 +905,7 @@ internal sealed class ItemInterface : IDisposable
             }
             if (element.m_durability) nativeDurability = new HiddenGraphics(element.m_durability.gameObject);
             cheated = MakeCheatBadge(rect, font, hotbar: false);
-            quality = new ItemQualityBadge(rect, art, font, element.m_quality);
+            quality = new ItemQualityBadge(rect, art, font, element.m_quality, element.m_icon);
             edge = MakeDurability(rect);
         }
 

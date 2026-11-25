@@ -18,7 +18,8 @@ internal sealed class ItemTooltip
     private readonly Canvas canvas;
     private readonly RectTransform card;
     private readonly Image surface, header, icon, rule, banner, bannerEdge, footerRule;
-    private readonly TextMeshProUGUI title, details, warning, footer, stack, weight;
+    private readonly TextMeshProUGUI title, quality, details, warning, footer, stack, weight;
+    private readonly Image qualityGlow;
     private readonly Image weightIcon;
     private readonly Image durabilityTrack, durabilityFill;
     private ItemDrop.ItemData lastItem;
@@ -33,6 +34,8 @@ internal sealed class ItemTooltip
         card = ItemUi.Rect(canvas.transform, "NewUI_ItemTooltip");
         surface = ItemUi.Image(card, "Card", art["item-card"]);
         header = ItemUi.Image(card, "IconWell", art["slot"]);
+        qualityGlow = ItemUi.Image(header.transform, "QualityGlow", art["glow"]);
+        ItemUi.Stretch(qualityGlow.rectTransform, Vector2.one * 3, -Vector2.one * 3);
         icon = ItemUi.Image(header.transform, "Icon");
         icon.preserveAspect = true;
         ItemUi.Stretch(icon.rectTransform, Vector2.one * 5, -Vector2.one * 5);
@@ -43,6 +46,10 @@ internal sealed class ItemTooltip
         title.enableAutoSizing = true;
         title.fontSizeMin = 14;
         title.fontSizeMax = 22;
+        quality = ItemUi.Text(card, "Quality", font, 14, ItemUi.Muted);
+        quality.fontStyle = FontStyles.Bold;
+        quality.alignment = TextAlignmentOptions.TopLeft;
+        quality.textWrappingMode = TextWrappingModes.NoWrap;
         rule = ItemUi.Image(card, "Divider");
         rule.color = new Color32(192, 157, 97, 155);
         details = ItemUi.Text(card, "DescriptionAndStats", font, 16, ItemUi.Muted);
@@ -211,7 +218,22 @@ internal sealed class ItemTooltip
         ItemUi.TopLeft(bannerEdge.rectTransform, 0, 0, width, 2);
         ItemUi.TopLeft(surface.rectTransform, 0, bannerHeight, width, Mathf.Max(1, height - bannerHeight));
         ItemUi.TopLeft(header.rectTransform, padding, start, 42, 42);
-        ItemUi.TopLeft(title.rectTransform, padding + 54, start, Mathf.Max(1, bodyWidth - 54 - rightColumn), 42);
+        // Items with levels name theirs under the title, in the color of the slot backlight.
+        bool levels = ItemQualityBadge.HasLevels(item);
+        float titleWidth = Mathf.Max(1, bodyWidth - 54 - rightColumn);
+        ItemUi.TopLeft(title.rectTransform, padding + 54, start, titleWidth, levels ? 26 : 42);
+        quality.enabled = levels;
+        qualityGlow.enabled = levels && item.m_quality > 1;
+        if (levels)
+        {
+            var tint = ItemQualityBadge.Tint(item.m_quality);
+            quality.color = tint;
+            quality.text = MenuStyle.Translate("Quality ", "Качество ") + item.m_quality +
+                (item.m_shared.m_maxQuality > 1 ? $" / {item.m_shared.m_maxQuality}" : "");
+            tint.a = 0.8f;
+            qualityGlow.color = tint;
+            ItemUi.TopLeft(quality.rectTransform, padding + 54, start + 26, titleWidth, 17);
+        }
         ItemUi.TopLeft(stack.rectTransform, width - padding - rightColumn, start, rightColumn, 23);
         ItemUi.TopLeft(durabilityTrack.rectTransform, width - padding - rightColumn, start + 27, rightColumn, 8);
         ItemUi.TopLeft(rule.rectTransform, padding, start + 51, bodyWidth, 1);
@@ -240,7 +262,8 @@ internal sealed class ItemTooltip
             return !label.StartsWith("$item_weight:", StringComparison.Ordinal)
                 && !label.StartsWith("$item_durability:", StringComparison.Ordinal)
                 && !label.StartsWith("$item_stack:", StringComparison.Ordinal)
-                && !label.StartsWith("$item_quantity:", StringComparison.Ordinal);
+                && !label.StartsWith("$item_quantity:", StringComparison.Ordinal)
+                && !label.StartsWith("$item_quality:", StringComparison.Ordinal);
         }))).Trim();
     }
 

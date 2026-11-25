@@ -78,7 +78,9 @@ internal sealed class EquipmentPanel
         modifiers.alignment = TextAlignmentOptions.TopLeft;
         modifiers.textWrappingMode = TextWrappingModes.Normal;
         ItemUi.Stretch(modifiers.rectTransform, Vector2.zero, Vector2.zero);
-        scroll = viewport.gameObject.AddComponent<ScrollRect>();
+        var wheel = viewport.gameObject.AddComponent<WheelScrollRect>();
+        wheel.TickDistance = 60;
+        scroll = wheel;
         scroll.viewport = viewport;
         scroll.content = content;
         scroll.horizontal = false;

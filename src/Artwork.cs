@@ -17,7 +17,8 @@ internal sealed class Artwork : IDisposable
         {
             foreach (string name in new[] { "panel", "slot", "button", "selected", "map-frame", "item-card",
                 "reticle", "player-marker", "meter-fill", "quality-star", "pickup-ring", "disc",
-                "radial-shadow", "map-ornament", "shelter", "campfire", "weight", "player-portrait", "pill" })
+                "radial-shadow", "map-ornament", "shelter", "campfire", "weight", "player-portrait", "pill",
+                "map-ring", "wind", "glow" })
             {
                 string path = Path.Combine(directory, name + ".png");
                 if (File.Exists(path))
@@ -40,7 +41,8 @@ internal sealed class Artwork : IDisposable
 
     private static Sprite Decode(string name, byte[] png)
     {
-        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        // The map ring is drawn far below its source size; mipmaps keep its pixel art from shimmering.
+        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, name == "map-ring");
         try
         {
             if (!ImageConversion.LoadImage(texture, png, true)) throw new InvalidDataException("Invalid PNG");

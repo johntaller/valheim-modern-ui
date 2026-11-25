@@ -24,7 +24,7 @@ internal sealed class PlayersPage
         this.font = font;
         Root = ItemUi.Rect(parent, "Players");
         ItemUi.Stretch(Root, Vector2.zero, Vector2.zero);
-        var scroll = Root.gameObject.AddComponent<ScrollRect>();
+        var scroll = Root.gameObject.AddComponent<WheelScrollRect>();
         var viewport = ItemUi.Rect(Root, "Viewport");
         ItemUi.Stretch(viewport, Vector2.zero, new Vector2(-14, 0));
         viewport.gameObject.AddComponent<RectMask2D>();

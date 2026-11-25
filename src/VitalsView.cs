@@ -10,8 +10,12 @@ internal sealed class VitalsView
     internal const float Clearance = 166;
     private const float Height = 132;
     private readonly RectTransform root, aim, nativeHealth;
-    private readonly Image healthFrame, healthTrack, healthFill, healthShade;
-    private readonly TextMeshProUGUI healthValue, staminaValue, guardianName;
+    private const float GaugeWidth = 34;
+    private readonly RectTransform healthRoot;
+    private readonly HealthGauge gauge;
+    private readonly LowHealthVignette vignette;
+    private readonly Image healthShade;
+    private readonly TextMeshProUGUI healthValue, healthMax, staminaValue, guardianName;
     private readonly Image reticle;
     private readonly StaminaArcs stamina;
     private readonly TimedSlot[] foods = new TimedSlot[3];
@@ -22,6 +26,10 @@ internal sealed class VitalsView
     private readonly HashSet<Graphic> hiddenText = new();
     private Sprite emptyFood, inactiveRested;
     private int lastHealth = -1, lastMaxHealth = -1, lastStamina = -1, lastMaxStamina = -1;
+    // Health events: the previous reading, the length on screen and the phases of each effect.
+    private Player watched;
+    private float seenHealth = -1, seenMax = -1, shownLength, lengthVelocity;
+    private float trail, trailHold, flashAt = -10, hurtAt = -10, growAt = -10;
 
     internal VitalsView(Hud hud, Canvas canvas, Artwork art, Theme theme)
     {
@@ -43,25 +51,31 @@ internal sealed class VitalsView
         {
             var shade = HudStyle.Shadow(root, art, 0.86f);
             ItemUi.TopLeft(shade.rectTransform, -24, -47, 254, 221);
+            vignette = ItemUi.Rect(canvasRect, "NewUI_LowHealth").gameObject.AddComponent<LowHealthVignette>();
+            vignette.raycastTarget = false;
+            ItemUi.Stretch(vignette.rectTransform, Vector2.zero, Vector2.zero);
+            vignette.rectTransform.SetAsFirstSibling();
             healthShade = HudStyle.Shadow(root, art, 0.70f);
             var healthShadowRect = healthShade.rectTransform;
             healthShadowRect.anchorMin = healthShadowRect.anchorMax = healthShadowRect.pivot = Vector2.zero;
-            healthShadowRect.anchoredPosition = new Vector2(-14, -14);
-            healthFrame = ItemUi.Image(root, "HealthFrame", art["slot"]);
-            var frame = healthFrame.rectTransform;
-            frame.anchorMin = frame.anchorMax = frame.pivot = Vector2.zero;
-            frame.anchoredPosition = new Vector2(20, 26);
-            healthTrack = ItemUi.Image(healthFrame.transform, "Track", art["meter-fill"]);
-            healthFill = ItemUi.Image(healthTrack.transform, "Fill", art["meter-fill"]);
-            healthFill.type = Image.Type.Filled;
-            healthFill.fillMethod = Image.FillMethod.Vertical;
-            ItemUi.Stretch(healthFill.rectTransform, Vector2.zero, Vector2.zero);
-            var cap = ItemUi.Image(frame, "HealthCap", art["reticle"]);
-            cap.color = ItemUi.Accent;
-            HudStyle.Center(cap.rectTransform, 0, 0, 16, 16);
-            cap.rectTransform.anchorMin = cap.rectTransform.anchorMax = new Vector2(0.5f, 1);
-            healthValue = Number(root, "Health", font, 18, theme.Text);
-            ItemUi.TopLeft(healthValue.rectTransform, -11, 108, 82, 24);
+            healthShadowRect.anchoredPosition = new Vector2(-22, -18);
+            healthRoot = ItemUi.Rect(root, "Health");
+            healthRoot.anchorMin = healthRoot.anchorMax = healthRoot.pivot = Vector2.zero;
+            healthRoot.anchoredPosition = new Vector2(12, 14);
+            healthRoot.sizeDelta = new Vector2(GaugeWidth, 120);
+            gauge = ItemUi.Rect(healthRoot, "Gauge").gameObject.AddComponent<HealthGauge>();
+            gauge.raycastTarget = false;
+            ItemUi.Stretch(gauge.rectTransform, Vector2.zero, Vector2.zero);
+            healthValue = Number(healthRoot, "Value", font, 19, HealthInk);
+            healthValue.enableAutoSizing = true;
+            healthValue.fontSizeMin = 12;
+            healthValue.fontSizeMax = 19;
+            HudStyle.Center(healthValue.rectTransform, 0, 0, GaugeWidth - 6, 22);
+            healthMax = Number(healthRoot, "Maximum", font, 13, HealthInk);
+            healthMax.enableAutoSizing = true;
+            healthMax.fontSizeMin = 9;
+            healthMax.fontSizeMax = 13;
+            HudStyle.Center(healthMax.rectTransform, 0, -16, GaugeWidth, 16);
             for (int i = 0; i < foods.Length; i++)
                 foods[i] = new TimedSlot(root, art, font, "FoodSlot", 66, 43 * i, 36);
 
@@ -103,34 +117,22 @@ internal sealed class VitalsView
 
     private readonly Image staminaCounterShade;
 
+    private static readonly Color32 HealthInk = new(255, 190, 184, 255);
+
     internal void Apply(Theme theme)
     {
-        float inset = Mathf.Clamp(theme.Padding + 1, 2, 7);
-        ItemUi.Stretch(healthTrack.rectTransform, Vector2.one * inset, Vector2.one * -inset);
-        healthFrame.color = theme.Frame;
-        healthTrack.color = theme.Background;
-        healthFill.color = Color.Lerp(theme.Health, ItemUi.Warning, 0.44f);
-        healthValue.color = staminaValue.color = theme.Text;
+        gauge.SetTint(theme.Health);
+        staminaValue.color = theme.Text;
         stamina.Style(theme);
     }
 
     internal void Refresh(Player player, bool visible, bool inventoryOpen, bool covered)
     {
         if (root.gameObject.activeSelf != visible) root.gameObject.SetActive(visible);
+        RefreshVignette(player, visible);
         if (visible)
         {
-            float max = player.GetMaxHealth();
-            float current = player.GetHealth();
-            // Valheim updates the native bar's width from maximum health.
-            // Use that length vertically, with space reserved for the hotbar on short screens.
-            float healthLength = Mathf.Clamp(nativeHealth.rect.width, 24, ((RectTransform)root.parent).rect.height * 0.55f);
-            if (healthFrame.rectTransform.sizeDelta.y != healthLength)
-            {
-                healthFrame.rectTransform.sizeDelta = new Vector2(20, healthLength);
-                healthShade.rectTransform.sizeDelta = new Vector2(88, healthLength + 80);
-            }
-            healthFill.fillAmount = max > 0 ? Mathf.Clamp01(current / max) : 0;
-            UpdateNumber(healthValue, current, max, ref lastHealth, ref lastMaxHealth);
+            RefreshHealth(player, inventoryOpen);
             var food = player.GetFoods();
             if (!emptyFood && ObjectDB.instance)
             {
@@ -165,6 +167,102 @@ internal sealed class VitalsView
         if (inventoryOpen) UpdateNumber(staminaValue, amount, maximum, ref lastStamina, ref lastMaxStamina);
     }
 
+    private void RefreshHealth(Player player, bool inventoryOpen)
+    {
+        float max = player.GetMaxHealth();
+        float current = Mathf.Clamp(player.GetHealth(), 0, Mathf.Max(max, 0));
+        float now = Time.time;
+        // Valheim lengthens its own bar with maximum health; this gauge grows the same way, upwards.
+        float room = ((RectTransform)root.parent).rect.height * 0.5f;
+        float target = Mathf.Clamp(70 + nativeHealth.rect.width * 1.3f, 104, Mathf.Max(104, room));
+        if (player != watched)
+        {
+            watched = player;
+            seenHealth = current;
+            seenMax = max;
+            shownLength = target;
+            lengthVelocity = 0;
+            trail = max > 0 ? current / max : 0;
+            flashAt = hurtAt = growAt = -10;
+        }
+        else
+        {
+            if (max > seenMax + 0.5f) growAt = now;
+            // A new maximum rescales the bar; the trail only marks health that was lost.
+            if (Mathf.Abs(max - seenMax) > 0.5f) trail = Mathf.Min(trail, max > 0 ? current / max : 0);
+            // Fading food lowers the maximum every second and drags a full bar down with it;
+            // only a drop beyond the lost maximum is damage.
+            if (seenHealth - current > Mathf.Max(0, seenMax - max) + 0.05f)
+            {
+                // The trail keeps the lost part visible for a moment before draining.
+                if (now - hurtAt > 0.5f || trail < seenHealth / Mathf.Max(1, seenMax)) trail = seenHealth / Mathf.Max(1, seenMax);
+                hurtAt = now;
+                trailHold = now + 0.45f;
+            }
+            else if (current > seenHealth + 0.05f && max <= seenMax + 0.5f) flashAt = now;
+            seenHealth = current;
+            seenMax = max;
+        }
+        shownLength = Mathf.SmoothDamp(shownLength, target, ref lengthVelocity, 0.35f, Mathf.Infinity, Time.deltaTime);
+        if (Mathf.Abs(shownLength - target) < 0.25f) shownLength = target;
+        float length = Mathf.Round(shownLength);
+        if (healthRoot.sizeDelta.y != length)
+        {
+            healthRoot.sizeDelta = new Vector2(GaugeWidth, length);
+            healthShade.rectTransform.sizeDelta = new Vector2(GaugeWidth + 44, length + 40);
+        }
+        float fill = max > 0 ? current / max : 0;
+        if (now >= trailHold) trail = Mathf.MoveTowards(trail, fill, Time.deltaTime * 0.9f);
+        if (trail < fill) trail = fill;
+
+        float flash = Pulse(now - flashAt, 0.55f);
+        float hurt = Pulse(now - hurtAt, 0.35f);
+        float sinceHurt = now - hurtAt;
+        float pulse = sinceHurt >= 0 && sinceHurt < 0.55f ? sinceHurt / 0.55f : -1;
+        float grow = Pulse(now - growAt, 0.9f);
+        gauge.Set(fill, trail, flash, pulse, hurt, grow);
+        // A short shake sells the hit without moving the numbers out of reach.
+        float shake = sinceHurt >= 0 && sinceHurt < 0.3f ? Mathf.Sin(sinceHurt * 70) * 3 * (1 - sinceHurt / 0.3f) : 0;
+        gauge.rectTransform.anchoredPosition = new Vector2(shake, 0);
+        healthRoot.localScale = Vector3.one * (1 + 0.05f * flash);
+
+        int amount = Mathf.CeilToInt(current), capacity = Mathf.Max(0, Mathf.CeilToInt(max));
+        if (amount != lastHealth || capacity != lastMaxHealth)
+        {
+            lastHealth = amount;
+            lastMaxHealth = capacity;
+            healthValue.SetText("{0}", amount);
+            healthMax.SetText("/{0}", capacity);
+        }
+        // The value sits in the middle of the bar; the maximum appears with the inventory.
+        healthValue.rectTransform.anchoredPosition = new Vector2(0, inventoryOpen ? 7 : 0);
+        healthMax.rectTransform.anchoredPosition = new Vector2(0, -12);
+        healthMax.enabled = inventoryOpen;
+        healthValue.color = Color.Lerp(HealthInk, Color.white, Mathf.Max(flash, hurt));
+    }
+
+    // 1 at the event, fading to 0 after the given duration.
+    private static float Pulse(float elapsed, float duration) =>
+        elapsed < 0 || elapsed >= duration ? 0 : Mathf.Pow(1 - elapsed / duration, 2);
+
+    private void RefreshVignette(Player player, bool visible)
+    {
+        float max = visible ? player.GetMaxHealth() : 0;
+        float fraction = max > 0 ? Mathf.Clamp01(player.GetHealth() / max) : 1;
+        float strength = fraction < 0.5f ? Mathf.Lerp(0.18f, 0.85f, Mathf.InverseLerp(0.5f, 0.05f, fraction)) : 0;
+        float beat = 0;
+        if (fraction < 0.2f && strength > 0)
+        {
+            // A fast double beat, like a heartbeat under stress.
+            float phase = Mathf.Repeat(Time.time * 1.6f, 1);
+            beat = Mathf.Max(Pulse(phase, 0.22f), 0.7f * Pulse(phase - 0.24f, 0.22f));
+            strength *= 0.7f + 0.3f * beat;
+        }
+        bool show = strength > 0;
+        if (vignette.gameObject.activeSelf != show) vignette.gameObject.SetActive(show);
+        if (show) vignette.Set(strength, beat);
+    }
+
     private void Hide(RectTransform source)
     {
         if (!source) return;
@@ -186,6 +284,7 @@ internal sealed class VitalsView
             if (text) text.enabled = true;
         ItemUi.Destroy(aim);
         ItemUi.Destroy(root);
+        ItemUi.Destroy(vignette);
     }
 
     private static TextMeshProUGUI Number(Transform parent, string name, TMP_FontAsset font, float size, Color color)
