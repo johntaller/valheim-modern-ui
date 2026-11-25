@@ -78,12 +78,16 @@ internal sealed class InterfaceSkin : IDisposable
         bool mapOpen = Minimap.IsOpen();
         bool visible = player && !player.IsDead() && hud.isActiveAndEnabled && hud.m_rootObject.activeInHierarchy && hud.IsVisible();
         bool covered = paused || mapOpen || Console.IsVisible() || (TextViewer.instance && TextViewer.instance.IsVisible());
-        worldInteractions?.Refresh(player, visible && !covered && !inventoryOpen);
-        mapHud?.Refresh(player, visible && !mapOpen && !inventoryOpen, theme.CompassHighlightDistance);
+        // The build menu, a teleport and a seat at the helm or on a bench all take over the screen centre.
+        bool building = Hud.IsPieceSelectionVisible();
+        bool busy = player && (player.IsTeleporting() || player.IsAttached() || player.IsAttachedToShip());
+        worldInteractions?.Refresh(player, visible && !covered && !inventoryOpen && !building && !busy);
+        mapHud?.Refresh(player, visible && !mapOpen && !inventoryOpen, theme.CompassHighlightDistance,
+            theme.CompassMarkerDistance);
         LifeNotices.Observe(player);
         onlinePlayers?.Refresh(player, visible && !covered && !inventoryOpen, theme.PlayerDetectionDistance);
         items?.Refresh(inventory, player);
-        combat?.Refresh(player, visible && !covered && !inventoryOpen);
+        combat?.Refresh(player, visible && !covered && !inventoryOpen && !building && !(player && player.IsTeleporting()));
         notifications?.Refresh(covered);
         if (vitals == null && worldRoot && hud.m_crosshair && hud.m_healthBarRoot && hud.m_staminaBar2Root)
         {

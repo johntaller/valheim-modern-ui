@@ -9,7 +9,8 @@ namespace ValheimNewUI;
 internal sealed class OnlinePlayers : IDisposable
 {
     private readonly List<Peer> peers = new();
-    private readonly HashSet<string> pinned = new(StringComparer.Ordinal);
+    // Static so the pins outlive a rebuilt HUD; they are cleared when the session ends.
+    private static readonly HashSet<string> pinned = new(StringComparer.Ordinal);
     private readonly RectTransform root;
     private readonly HudRow[] rows = new HudRow[5];
     private readonly PlayerCardSync cards;
@@ -29,13 +30,18 @@ internal sealed class OnlinePlayers : IDisposable
     internal void Refresh(Player player, bool visible, float range)
     {
         float mapSize = Mathf.Clamp(((RectTransform)root.parent).rect.width * 0.15f, 170, 250);
-        root.anchoredPosition = new Vector2(-24, -mapSize - 144);
+        root.anchoredPosition = new Vector2(-24, -mapSize - 344);
         root.gameObject.SetActive(visible);
-        if (!player)
+        // Pins belong to the session: a dead player has no character for a moment, but keeps them.
+        if (!ZNet.instance)
         {
             pinned.Clear();
             peers.Clear();
+        }
+        if (!player)
+        {
             nextRefresh = 0;
+            foreach (var row in rows) row.Hide();
             return;
         }
 

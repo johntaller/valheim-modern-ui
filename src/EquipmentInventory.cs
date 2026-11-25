@@ -373,6 +373,21 @@ internal static class EquipmentInventory
             y < 0 || ReservedRow(__instance) != y && (QuickRow(__instance) != y || dropping);
     }
 
+    // A grave copies the player's grid, quick slot row included. Taking it back puts each item
+    // into its old cell, so let that row accept the items that were in the quick slots.
+    [HarmonyPatch(typeof(Inventory), nameof(Inventory.MoveAll))]
+    private static class RestoreFromGrave
+    {
+        private static void Prefix(Inventory __instance, Inventory __0)
+        {
+            int quick = QuickRow(__instance);
+            if (quick >= 0 && __0 != null && __0 != __instance && __0.GetWidth() == __instance.GetWidth()
+                && __0.GetHeight() > quick) dropping = true;
+        }
+
+        private static void Finalizer() => dropping = false;
+    }
+
     [HarmonyPatch(typeof(InventoryGui), "DoCrafting")]
     private static class UpgradeEquipment
     {
