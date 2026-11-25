@@ -4,49 +4,54 @@ using UnityEngine.UI;
 
 namespace ValheimNewUI;
 
+// Shows an item's quality as a soft backlight behind its icon: none at level 1, then
+// green, blue, purple and red, and gold from level 6.
 internal sealed class ItemQualityBadge
 {
-    private static readonly Color32 Gold = new(255, 211, 115, 255);
-    private readonly RectTransform root;
-    private readonly TextMeshProUGUI level;
+    private readonly Image glow;
     private readonly HiddenGraphics original;
-    private int shownQuality;
+    private int shownQuality = -1;
 
-    internal ItemQualityBadge(RectTransform slot, Artwork art, TMP_FontAsset font, TMP_Text nativeQuality = null)
+    internal ItemQualityBadge(RectTransform slot, Artwork art, TMP_FontAsset font, TMP_Text nativeQuality = null,
+        Graphic icon = null)
     {
         if (nativeQuality) original = new HiddenGraphics(nativeQuality.gameObject);
-        root = ItemUi.Rect(slot, "NewUI_Quality");
-        root.anchorMin = root.anchorMax = root.pivot = Vector2.one;
-        root.anchoredPosition = new Vector2(-4, -3);
-        root.sizeDelta = new Vector2(27, 15);
-        var star = ItemUi.Image(root, "Star", art["quality-star"]);
-        star.color = Gold;
-        ItemUi.TopLeft(star.rectTransform, 0, 1, 13, 13);
-        var shade = star.gameObject.AddComponent<Shadow>();
-        shade.effectColor = new Color(0, 0, 0, 0.9f);
-        shade.effectDistance = new Vector2(0, -1);
-        level = ItemUi.Text(root, "Level", font, 13, Gold);
-        level.fontStyle = FontStyles.Bold;
-        level.alignment = TextAlignmentOptions.MidlineLeft;
-        level.textWrappingMode = TextWrappingModes.NoWrap;
-        ItemUi.Stretch(level.rectTransform, new Vector2(14, 0), Vector2.zero);
-        root.gameObject.SetActive(false);
+        glow = ItemUi.Image(slot, "NewUI_QualityGlow", art["glow"]);
+        ItemUi.Stretch(glow.rectTransform, Vector2.one * 3, Vector2.one * -3);
+        // Behind the icon, above the slot face.
+        if (icon && icon.transform.parent == slot) glow.transform.SetSiblingIndex(icon.transform.GetSiblingIndex());
+        else glow.transform.SetAsFirstSibling();
+        glow.enabled = false;
     }
+
+    internal static bool HasLevels(ItemDrop.ItemData item) =>
+        item != null && (item.m_shared.m_maxQuality > 1 || item.m_quality > 1);
+
+    internal static Color Tint(int quality) => quality switch
+    {
+        <= 1 => ItemUi.Muted,
+        2 => new Color32(92, 214, 104, 255),
+        3 => new Color32(84, 150, 255, 255),
+        4 => new Color32(180, 98, 255, 255),
+        5 => new Color32(244, 66, 66, 255),
+        _ => new Color32(255, 204, 84, 255),
+    };
 
     internal void Refresh(ItemDrop.ItemData item)
     {
-        int quality = item != null && (item.m_shared.m_maxQuality > 1 || item.m_quality > 1) ? item.m_quality : 0;
+        int quality = HasLevels(item) ? item.m_quality : 0;
         if (shownQuality == quality) return;
         shownQuality = quality;
-        root.gameObject.SetActive(quality > 0);
-        if (quality <= 0) return;
-        level.text = quality.ToString();
-        root.sizeDelta = new Vector2(16 + level.GetPreferredValues(level.text).x, 15);
+        glow.enabled = quality > 1;
+        if (!glow.enabled) return;
+        var tint = Tint(quality);
+        tint.a = 0.6f;
+        glow.color = tint;
     }
 
     internal void Dispose()
     {
         original?.Restore();
-        ItemUi.Destroy(root);
+        ItemUi.Destroy(glow);
     }
 }

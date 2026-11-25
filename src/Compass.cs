@@ -81,7 +81,8 @@ internal sealed class Compass
 
     internal void Hide() => rect.gameObject.SetActive(false);
 
-    internal void Refresh(Player player, List<Minimap.PinData> source, Minimap.PinData deathPin, bool[] visibleTypes, float sharedFade, float highlightDistance)
+    internal void Refresh(Player player, List<Minimap.PinData> source, Minimap.PinData deathPin, bool[] visibleTypes, float sharedFade, float highlightDistance,
+        float markerDistance)
     {
         if (!rect.gameObject.activeSelf) rect.gameObject.SetActive(true);
         float width = Mathf.Clamp(((RectTransform)rect.parent).rect.width * 0.31f, 190, 430);
@@ -108,7 +109,8 @@ internal sealed class Compass
                     || (visibleTypes != null && (type < 0 || type >= visibleTypes.Length || !visibleTypes[type]))) continue;
                 Vector3 offset = pin.m_pos - player.transform.position;
                 float distance = new Vector2(offset.x, offset.z).magnitude;
-                if (distance < 1) continue;
+                // Far markers stay on the map; the latest death point always shows.
+                if (distance < 1 || distance > markerDistance && pin != deathPin) continue;
                 float angle = Mathf.DeltaAngle(facing, Mathf.Atan2(offset.x, offset.z) * Mathf.Rad2Deg);
                 if (Mathf.Abs(angle) <= HalfAngle) visiblePins.Add((pin, angle, distance));
             }

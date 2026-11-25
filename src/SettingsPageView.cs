@@ -106,7 +106,7 @@ internal sealed class SettingsPageView
         list.padding = new RectOffset(0, 0, 2, 14);
         content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-        scroll = root.gameObject.AddComponent<ScrollRect>();
+        scroll = root.gameObject.AddComponent<WheelScrollRect>();
         scroll.viewport = viewport;
         scroll.content = content;
         scroll.horizontal = false;

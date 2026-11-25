@@ -1,6 +1,7 @@
 {
   "enabled": true,
   "compassHighlightDistance": 500,
+  "compassMarkerDistance": 500,
   "playerDetectionDistance": 500,
   "padding": 2,
   "frame": "#99856D",

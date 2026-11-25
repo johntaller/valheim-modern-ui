@@ -8,7 +8,7 @@ namespace ValheimNewUI;
 internal sealed class Theme
 {
     internal readonly bool Enabled;
-    internal readonly float Padding, CompassHighlightDistance, PlayerDetectionDistance;
+    internal readonly float Padding, CompassHighlightDistance, CompassMarkerDistance, PlayerDetectionDistance;
     internal readonly Color Frame, Background, Health, Stamina, Text;
 
     internal Theme(string json)
@@ -48,6 +48,8 @@ internal sealed class Theme
         Padding = Number("padding", 0, 57);
         CompassHighlightDistance = data["compassHighlightDistance"] == null
             ? 500 : Number("compassHighlightDistance", 0, float.MaxValue);
+        CompassMarkerDistance = data["compassMarkerDistance"] == null
+            ? 500 : Number("compassMarkerDistance", 0, float.MaxValue);
         PlayerDetectionDistance = data["playerDetectionDistance"] == null
             ? 500 : Number("playerDetectionDistance", 0, float.MaxValue);
         Frame = Tint("frame");

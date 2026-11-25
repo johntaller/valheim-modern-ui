@@ -14,8 +14,14 @@ internal sealed class MapHud : IDisposable
     private static readonly System.Reflection.FieldInfo SharedFade = AccessTools.Field(typeof(Minimap), "m_sharedMapDataFade");
 
     private readonly RectTransform root, area, pinRoot, mapRoot, caption;
+    // The ring artwork, in its source pixels: the inner circle frames the map and the small
+    // circle below it holds the wind indicator.
+    private const float RingWidth = 1093, RingHeight = 1213, RingInner = 452;
+    private static readonly Vector2 RingCenter = new(547, 543), WindCenter = new(546, 1106);
+    private const float WindRadius = 87;
+
     private readonly CircleMap terrain;
-    private readonly Image marker, ship, wind, windFace;
+    private readonly Image marker, ship, wind, windFace, ring, ringShadow;
     private readonly TextMeshProUGUI biome, clock;
     private readonly Image leftOrnament, rightOrnament;
     private readonly List<Image> mapPins = new();
@@ -38,30 +44,26 @@ internal sealed class MapHud : IDisposable
         area.anchoredPosition = new Vector2(-24, -23);
         var map = mapRoot = ItemUi.Rect(area, "RoundMinimap");
         ItemUi.Stretch(map, Vector2.zero, Vector2.zero);
-        var mapShadow = ItemUi.Image(map, "Shadow", art["disc"]);
-        mapShadow.color = new Color32(19, 16, 13, 234);
-        ItemUi.Stretch(mapShadow.rectTransform, new Vector2(-7, -10), new Vector2(7, 6));
-        var mapEdge = ItemUi.Image(map, "Edge", art["disc"]);
-        mapEdge.color = new Color32(163, 133, 85, 255);
-        ItemUi.Stretch(mapEdge.rectTransform, Vector2.one * -5, Vector2.one * 5);
+        ringShadow = HudStyle.Shadow(map, art, 0.8f);
+        windFace = ItemUi.Image(map, "WindBadge", art["disc"]);
+        windFace.color = new Color32(14, 22, 21, 240);
+        var mapBack = ItemUi.Image(map, "Backing", art["disc"]);
+        mapBack.color = new Color32(14, 22, 21, 255);
+        ItemUi.Stretch(mapBack.rectTransform, Vector2.one * -3, Vector2.one * 3);
         terrain = ItemUi.Rect(map, "MapTexture").gameObject.AddComponent<CircleMap>();
         terrain.raycastTarget = false;
         ItemUi.Stretch(terrain.rectTransform, Vector2.zero, Vector2.zero);
         pinRoot = ItemUi.Rect(map, "Pins");
         ItemUi.Stretch(pinRoot, Vector2.zero, Vector2.zero);
+        ring = ItemUi.Image(map, "Ring", art["map-ring"]);
+        ring.preserveAspect = true;
         marker = ItemUi.Image(map, "Player", art["player-marker"]);
         marker.rectTransform.sizeDelta = new Vector2(23, 23);
         ship = ItemUi.Image(map, "Ship");
         ship.preserveAspect = true;
         ship.rectTransform.sizeDelta = new Vector2(21, 21);
-        windFace = ItemUi.Image(map, "WindBadge", art["disc"]);
-        windFace.color = new Color32(20, 19, 17, 232);
-        windFace.rectTransform.anchorMin = windFace.rectTransform.anchorMax = new Vector2(0.5f, 0);
-        windFace.rectTransform.anchoredPosition = new Vector2(0, 22);
-        windFace.rectTransform.sizeDelta = new Vector2(34, 34);
-        wind = ItemUi.Image(windFace.transform, "WindDirection");
+        wind = ItemUi.Image(map, "WindDirection", art["wind"]);
         wind.preserveAspect = true;
-        wind.rectTransform.sizeDelta = new Vector2(19, 19);
 
         caption = ItemUi.Rect(map, "Location");
         caption.anchorMin = caption.anchorMax = new Vector2(0.5f, 0);
@@ -83,7 +85,7 @@ internal sealed class MapHud : IDisposable
         compass = new Compass(root, art, font, displayFont);
     }
 
-    internal void Refresh(Player player, bool visible, float highlightDistance)
+    internal void Refresh(Player player, bool visible, float highlightDistance, float markerDistance)
     {
         var map = Minimap.instance;
         if (map != owner)
@@ -110,6 +112,7 @@ internal sealed class MapHud : IDisposable
         {
             area.sizeDelta = new Vector2(size, size);
             caption.sizeDelta = new Vector2(size, 48);
+            LayoutRing(size);
             ItemUi.TopLeft(biome.rectTransform, 24, 1, size - 48, 27);
             ItemUi.TopLeft(clock.rectTransform, 0, 27, size, 20);
             AlignOrnaments(size);
@@ -121,7 +124,7 @@ internal sealed class MapHud : IDisposable
             RefreshMap(map, pins, size);
             rest.Refresh(player);
             compass.Refresh(player, pins, FindLastDeathPin(pins), VisibleTypes?.GetValue(map) as bool[],
-                SharedFade?.GetValue(map) is float fade ? fade : 0, highlightDistance);
+                SharedFade?.GetValue(map) is float fade ? fade : 0, highlightDistance, markerDistance);
         }
         else
         {
@@ -175,13 +178,17 @@ internal sealed class MapHud : IDisposable
             ship.sprite = shipSource.sprite;
             ship.rectTransform.rotation = map.m_smallShipMarker.rotation;
         }
-        wind.enabled = windSource && windSource.gameObject.activeInHierarchy;
-        windFace.enabled = wind.enabled;
+        wind.enabled = EnvMan.instance;
         if (wind.enabled)
         {
-            wind.sprite = windSource.sprite;
-            wind.color = ItemUi.Ink;
-            wind.rectTransform.rotation = map.m_windMarker.rotation;
+            // The minimap keeps north up, so the icon turns to where the wind blows.
+            var direction = EnvMan.instance.GetWindDir();
+            float intensity = Mathf.Clamp01(EnvMan.instance.GetWindIntensity());
+            wind.rectTransform.localEulerAngles = new Vector3(0, 0, -Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg);
+            // Calm air fades the gusts; a gale makes them bright and a little larger.
+            wind.color = Color.Lerp(new Color32(150, 190, 180, 150), new Color32(170, 255, 236, 255), intensity);
+            float scale = Mathf.Lerp(0.85f, 1.08f, intensity);
+            wind.rectTransform.localScale = new Vector3(scale, scale, 1);
         }
 
         int shown = 0;
@@ -204,6 +211,26 @@ internal sealed class MapHud : IDisposable
             }
         }
         for (int i = shown; i < mapPins.Count; i++) mapPins[i].enabled = false;
+    }
+
+    private void LayoutRing(float size)
+    {
+        float scale = size / (RingInner * 2);
+        // Keep the whole ring on screen: it reaches past the map at the top and on the right.
+        area.anchoredPosition = new Vector2(-16 - (RingWidth - RingCenter.x - RingInner) * scale,
+            -14 - (RingCenter.y - RingInner) * scale);
+        var center = new Vector2(RingWidth, RingHeight) * 0.5f;
+        // Source pixels run downwards; UI coordinates run upwards from the map centre.
+        Vector2 Place(Vector2 source) => new Vector2(source.x - RingCenter.x, RingCenter.y - source.y) * scale;
+        HudStyle.Center(ring.rectTransform, 0, 0, RingWidth * scale, RingHeight * scale);
+        ring.rectTransform.anchoredPosition = Place(center);
+        HudStyle.Center(ringShadow.rectTransform, 0, 0, RingWidth * scale * 1.35f, RingHeight * scale * 1.3f);
+        ringShadow.rectTransform.anchoredPosition = Place(center) + new Vector2(0, -4);
+        var windAt = Place(WindCenter);
+        HudStyle.Center(windFace.rectTransform, windAt.x, windAt.y, WindRadius * scale * 2.15f, WindRadius * scale * 2.15f);
+        HudStyle.Center(wind.rectTransform, windAt.x, windAt.y, WindRadius * scale * 1.45f, WindRadius * scale * 1.45f);
+        // The location caption sits under the ring's lowest point.
+        caption.anchoredPosition = new Vector2(0, -((RingHeight - RingCenter.y) * scale - size * 0.5f) + 2);
     }
 
     private void AlignOrnaments(float size)
