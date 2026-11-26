@@ -7,25 +7,43 @@ namespace ValheimNewUI;
 
 internal sealed class VitalsView
 {
-    internal const float Clearance = 166;
+    // Players found the vitals small; the whole block is drawn a fifth larger.
+    private const float Scale = 1.2f;
     private const float Height = 132;
+    internal const float Clearance = 18 + Height * Scale + 16;
+    // Three food diamonds stacked beside the gauge, then a column of two larger diamonds for the
+    // rested bonus and the guardian power, both columns as tall as the block and resting on the
+    // same line as the tip of the gauge. Status effects follow on the right.
+    private const float FoodX = 72, FoodSize = 42, FoodStep = 44, SideX = 120, SideSize = 64, SideStep = 66;
+    private const float SideCardWidth = 196, EffectsGap = 12;
+    // The gauge's lowest pixel (its bronze tip) sits this far above its own rectangle.
+    private const float GaugeFoot = 1;
     private readonly RectTransform root, aim, nativeHealth;
-    private const float GaugeWidth = 34;
+    private const float GaugeWidth = 48;
+    // At its shortest the gauge stands as tall as the column of slots beside it.
+    private const float GaugeMinimum = 136;
     private readonly RectTransform healthRoot;
     private readonly HealthGauge gauge;
     private readonly LowHealthVignette vignette;
     private readonly Image healthShade;
-    private readonly TextMeshProUGUI healthValue, healthMax, staminaValue, guardianName;
+    private readonly TextMeshProUGUI healthValue, healthMax, staminaValue;
     private readonly Image reticle;
     private readonly StaminaArcs stamina;
-    private readonly TimedSlot[] foods = new TimedSlot[3];
-    private readonly TimedSlot rested, guardian;
+    private readonly CanvasGroup staminaGroup;
+    private readonly AimBars bars;
+    private readonly FoodSlot[] foods = new FoodSlot[3];
+    private readonly DiamondSlot rested, guardian;
     private readonly Button guardianTouch;
     private readonly StatusEffectHud effects;
+    private readonly VitalsTips tips;
     private readonly List<HiddenGraphics> hidden = new();
     private readonly HashSet<Graphic> hiddenText = new();
-    private Sprite emptyFood, inactiveRested;
-    private int lastHealth = -1, lastMaxHealth = -1, lastStamina = -1, lastMaxStamina = -1;
+    private Sprite inactiveRested;
+    private readonly HudSound alarmSound;
+    private float alarmThreshold = 0.25f, alarmVolume = 1, alarmAt = -10, sideX = SideX, effectsX = SideX + SideSize + EffectsGap;
+    private float staminaAlpha, powerReadyAt = -10;
+    private bool powerWasReady = true;
+    private int lastHealth = -1, lastMaxHealth = -1, lastStamina = -1;
     // Health events: the previous reading, the length on screen and the phases of each effect.
     private Player watched;
     private float seenHealth = -1, seenMax = -1, shownLength, lengthVelocity;
@@ -40,6 +58,7 @@ internal sealed class VitalsView
         root.anchorMin = root.anchorMax = root.pivot = Vector2.zero;
         root.anchoredPosition = new Vector2(22, 18);
         root.sizeDelta = new Vector2(440, Height);
+        root.localScale = Vector3.one * Scale;
         root.SetAsFirstSibling();
         root.gameObject.SetActive(false);
         aim = ItemUi.Rect(canvasRect, "NewUI_AimVitals");
@@ -50,7 +69,7 @@ internal sealed class VitalsView
         try
         {
             var shade = HudStyle.Shadow(root, art, 0.86f);
-            ItemUi.TopLeft(shade.rectTransform, -24, -47, 254, 221);
+            ItemUi.TopLeft(shade.rectTransform, -24, -47, 268, 221);
             vignette = ItemUi.Rect(canvasRect, "NewUI_LowHealth").gameObject.AddComponent<LowHealthVignette>();
             vignette.raycastTarget = false;
             ItemUi.Stretch(vignette.rectTransform, Vector2.zero, Vector2.zero);
@@ -58,32 +77,32 @@ internal sealed class VitalsView
             healthShade = HudStyle.Shadow(root, art, 0.70f);
             var healthShadowRect = healthShade.rectTransform;
             healthShadowRect.anchorMin = healthShadowRect.anchorMax = healthShadowRect.pivot = Vector2.zero;
-            healthShadowRect.anchoredPosition = new Vector2(-22, -18);
+            healthShadowRect.anchoredPosition = new Vector2(-22, -18 - (14 - BlockBottom + GaugeFoot));
             healthRoot = ItemUi.Rect(root, "Health");
             healthRoot.anchorMin = healthRoot.anchorMax = healthRoot.pivot = Vector2.zero;
-            healthRoot.anchoredPosition = new Vector2(12, 14);
-            healthRoot.sizeDelta = new Vector2(GaugeWidth, 120);
+            healthRoot.anchoredPosition = new Vector2(12, BlockBottom - GaugeFoot);
+            healthRoot.sizeDelta = new Vector2(GaugeWidth, GaugeMinimum);
             gauge = ItemUi.Rect(healthRoot, "Gauge").gameObject.AddComponent<HealthGauge>();
             gauge.raycastTarget = false;
             ItemUi.Stretch(gauge.rectTransform, Vector2.zero, Vector2.zero);
-            healthValue = Number(healthRoot, "Value", font, 19, HealthInk);
+            healthValue = Number(healthRoot, "Value", font, 25, HealthInk);
             healthValue.enableAutoSizing = true;
-            healthValue.fontSizeMin = 12;
-            healthValue.fontSizeMax = 19;
-            HudStyle.Center(healthValue.rectTransform, 0, 0, GaugeWidth - 6, 22);
-            healthMax = Number(healthRoot, "Maximum", font, 13, HealthInk);
+            healthValue.fontSizeMin = 14;
+            healthValue.fontSizeMax = 25;
+            HudStyle.Center(healthValue.rectTransform, 0, 2, GaugeWidth - 8, 28);
+            healthMax = Number(healthRoot, "Maximum", font, 16, HealthInk);
             healthMax.enableAutoSizing = true;
-            healthMax.fontSizeMin = 9;
-            healthMax.fontSizeMax = 13;
-            HudStyle.Center(healthMax.rectTransform, 0, -16, GaugeWidth, 16);
-            for (int i = 0; i < foods.Length; i++)
-                foods[i] = new TimedSlot(root, art, font, "FoodSlot", 66, 43 * i, 36);
+            healthMax.fontSizeMin = 10;
+            healthMax.fontSizeMax = 16;
+            HudStyle.Center(healthMax.rectTransform, 0, -19, GaugeWidth - 4, 18);
+            // Later slots are drawn first so an unfolded card never covers the slot above it.
+            for (int i = foods.Length - 1; i >= 0; i--)
+                foods[i] = new FoodSlot(root, art, font, hud.m_healthText.font, FoodX, FoodStep * i, FoodSize);
 
-            rested = new TimedSlot(root, art, font, "Rested", 122, 0, 39);
-            guardian = new TimedSlot(root, art, font, "GuardianPower", 122, 48, 39);
-            guardianName = Number(root, "GuardianName", font, 13, ItemUi.Ink);
-            guardianName.overflowMode = TextOverflowModes.Ellipsis;
-            ItemUi.TopLeft(guardianName.rectTransform, 104, 101, 75, 16);
+            rested = new DiamondSlot(root, art, font, hud.m_healthText.font, "Rested", SideX, 0, SideSize, SideCardWidth);
+            guardian = new DiamondSlot(root, art, font, hud.m_healthText.font, "GuardianPower", SideX, SideStep, SideSize, SideCardWidth);
+            try { alarmSound = new HudSound("low-health"); }
+            catch (System.Exception ex) { Debug.LogWarning("[Valheim New UI] Low health sound: " + ex.Message); }
             guardianTouch = guardian.Icon.gameObject.AddComponent<Button>();
             guardianTouch.transition = Selectable.Transition.None;
             guardianTouch.navigation = new Navigation { mode = Navigation.Mode.None };
@@ -91,13 +110,26 @@ internal sealed class VitalsView
             {
                 if (ZInput.HasDoubleTapped() && Player.m_localPlayer) Player.m_localPlayer.StartGuardianPower();
             });
-            effects = new StatusEffectHud(hud, root, art);
-            stamina = aim.gameObject.AddComponent<StaminaArcs>();
+            effects = new StatusEffectHud(hud, root, art, effectsX);
+            tips = new VitalsTips(canvas.rootCanvas, art, hud.m_healthText.font);
+            var staminaRoot = ItemUi.Rect(aim, "Stamina");
+            ItemUi.Stretch(staminaRoot, Vector2.zero, Vector2.zero);
+            staminaGroup = staminaRoot.gameObject.AddComponent<CanvasGroup>();
+            staminaGroup.blocksRaycasts = staminaGroup.interactable = false;
+            staminaGroup.alpha = 0;
+            stamina = staminaRoot.gameObject.AddComponent<StaminaArcs>();
             stamina.raycastTarget = false;
-            staminaCounterShade = HudStyle.Shadow(aim, art, 0.85f);
-            HudStyle.Center(staminaCounterShade.rectTransform, 0, -40, 140, 68);
-            staminaValue = Number(aim, "Stamina", font, 18, theme.Text);
-            HudStyle.Center(staminaValue.rectTransform, 0, -40, 122, 22);
+            // The number rides on the end of the bar.
+            staminaCounterShade = HudStyle.Shadow(staminaRoot, art, 0.85f);
+            staminaCounterShade.rectTransform.anchorMin = staminaCounterShade.rectTransform.anchorMax = Vector2.one * 0.5f;
+            staminaCounterShade.rectTransform.pivot = new Vector2(0.2f, 0.5f);
+            staminaCounterShade.rectTransform.sizeDelta = new Vector2(70, 36);
+            staminaValue = Number(staminaRoot, "Value", font, 16, theme.Text);
+            staminaValue.alignment = TextAlignmentOptions.MidlineLeft;
+            staminaValue.rectTransform.anchorMin = staminaValue.rectTransform.anchorMax = Vector2.one * 0.5f;
+            staminaValue.rectTransform.pivot = new Vector2(0, 0.5f);
+            staminaValue.rectTransform.sizeDelta = new Vector2(48, 20);
+            bars = new AimBars(hud, aim, font, art);
 
             Apply(theme);
             Hide(hud.m_healthPanel);
@@ -116,12 +148,17 @@ internal sealed class VitalsView
     }
 
     private readonly Image staminaCounterShade;
+    // The bottom of the block: the tips of the gauge and of every diamond rest on this line.
+    private const float BlockBottom = Height - FoodStep * 2 - FoodSize;
 
     private static readonly Color32 HealthInk = new(255, 190, 184, 255);
 
     internal void Apply(Theme theme)
     {
         gauge.SetTint(theme.Health);
+        alarmThreshold = theme.LowHealthAlarm;
+        alarmVolume = theme.LowHealthVolume;
+        staminaInk = theme.Text;
         staminaValue.color = theme.Text;
         stamina.Style(theme);
     }
@@ -134,37 +171,98 @@ internal sealed class VitalsView
         {
             RefreshHealth(player, inventoryOpen);
             var food = player.GetFoods();
-            if (!emptyFood && ObjectDB.instance)
-            {
-                var meat = ObjectDB.instance.GetItemPrefab("RawMeat");
-                if (meat && meat.TryGetComponent<ItemDrop>(out var drop)) emptyFood = drop.m_itemData.GetIcon();
-            }
-            for (int i = 0; i < foods.Length; i++) foods[i].RefreshFood(i < food.Count ? food[i] : null, emptyFood);
-
-            var rest = player.GetSEMan().GetStatusEffect(SEMan.s_statusEffectRested);
-            if (!inactiveRested && ObjectDB.instance)
-                inactiveRested = ObjectDB.instance.GetStatusEffect(SEMan.s_statusEffectRested)?.m_icon;
-            rested.Refresh(rest ? rest.m_icon : inactiveRested, rest, rest ? rest.GetIconText() : "");
-            player.GetGuardianPowerHUD(out var power, out float cooldown);
-            string name = power ? Localization.instance.Localize(power.m_name) : "";
-            if (guardianName.text != name) guardianName.text = name;
-            guardian.Refresh(power ? power.m_icon : null, power && cooldown <= 0,
-                !power ? "" : cooldown > 0 ? StatusEffect.GetTimeString(cooldown, false, false)
-                    : Localization.instance.Localize("$hud_ready"));
-            bool touch = power && !inventoryOpen && !covered && ZInput.IsTouchActive();
-            guardian.Icon.raycastTarget = guardianTouch.enabled = touch;
-            effects.Refresh(player, inventoryOpen && !covered);
+            for (int i = 0; i < foods.Length; i++) foods[i].Refresh(i < food.Count ? food[i] : null, inventoryOpen && !covered);
+            bool expanded = inventoryOpen && !covered;
+            // Rested and the guardian power step aside for the unfolded food cards, and the
+            // effects for their own cards.
+            float side = expanded && food.Count > 0 ? FoodX + FoodSize * 0.5f + FoodSlot.CardWidth + 10 : SideX;
+            float step = Time.unscaledDeltaTime * 900;
+            sideX = Mathf.MoveTowards(sideX, side, step);
+            float effectsTarget = side + (expanded ? SideSize * 0.5f + SideCardWidth : SideSize) + EffectsGap;
+            effectsX = Mathf.MoveTowards(effectsX, effectsTarget, step);
+            rested.SetX(sideX);
+            guardian.SetX(sideX);
+            effects.SetX(effectsX);
+            RefreshRested(player, expanded);
+            RefreshPower(player, expanded, inventoryOpen || covered);
+            effects.Refresh(player, expanded);
+            RefreshTips(player, expanded, food);
         }
+        else tips.Clear();
 
         float maximum = visible ? player.GetMaxStamina() : 0;
         float amount = visible ? player.GetStamina() : 0;
-        bool show = visible && !covered && (inventoryOpen || reticle && reticle.isActiveAndEnabled && amount < maximum);
-        if (aim.gameObject.activeSelf != show) aim.gameObject.SetActive(show);
-        if (!show) return;
+        bool aiming = visible && !covered && (inventoryOpen || reticle && reticle.isActiveAndEnabled);
+        if (aim.gameObject.activeSelf != aiming) aim.gameObject.SetActive(aiming);
+        if (!aiming) return;
         if (reticle) aim.position = reticle.rectTransform.TransformPoint(reticle.rectTransform.rect.center);
+        bars.Refresh(player, true, inventoryOpen);
+
+        // Stamina shows while it is being spent, and always with the inventory open.
+        staminaAlpha = Mathf.MoveTowards(staminaAlpha, inventoryOpen || amount < maximum ? 1 : 0, Time.unscaledDeltaTime * 5);
+        staminaGroup.alpha = staminaAlpha;
+        if (staminaAlpha <= 0) return;
         stamina.Value(amount, maximum);
-        staminaValue.enabled = staminaCounterShade.enabled = inventoryOpen;
-        if (inventoryOpen) UpdateNumber(staminaValue, amount, maximum, ref lastStamina, ref lastMaxStamina);
+        // The number appears once stamina runs low, at the end of the remaining bar.
+        bool low = maximum > 0 && amount < maximum * 0.3f;
+        bool number = inventoryOpen || low;
+        staminaValue.enabled = staminaCounterShade.enabled = number;
+        if (!number) return;
+        var end = stamina.FillEnd(7);
+        staminaValue.rectTransform.anchoredPosition = end;
+        staminaCounterShade.rectTransform.anchoredPosition = end;
+        staminaValue.color = low ? Color.Lerp(staminaInk, ItemUi.Warning, 0.7f) : staminaInk;
+        int value = Mathf.Max(0, Mathf.CeilToInt(amount));
+        if (value != lastStamina)
+        {
+            lastStamina = value;
+            staminaValue.SetText("{0}", value);
+        }
+    }
+
+    private Color staminaInk = Color.white;
+
+    private void RefreshRested(Player player, bool expanded)
+    {
+        var rest = player.GetSEMan().GetStatusEffect(SEMan.s_statusEffectRested);
+        if (!inactiveRested && ObjectDB.instance)
+            inactiveRested = ObjectDB.instance.GetStatusEffect(SEMan.s_statusEffectRested)?.m_icon;
+        float left = rest && rest.m_ttl > 0 ? Mathf.Clamp01(rest.GetRemaningTime() / rest.m_ttl) : 0;
+        rested.Show(rest ? rest.m_icon : inactiveRested, rest ? Color.white : (Color)new Color32(103, 93, 82, 180), rest, left, 0, 0, 0);
+        if (!expanded)
+        {
+            rested.Card(false, "", "", "");
+            return;
+        }
+        string title = rest ? Localization.instance.Localize(rest.m_name)
+            : MenuStyle.Translate("Not rested", "Нет отдыха");
+        string comfort = Localization.instance.Localize("$se_rested_comfort") + " " + player.GetComfortLevel();
+        rested.Card(true, title, comfort, rest ? rest.GetIconText() : "");
+    }
+
+    // The band refills while the power recharges; a short glow says it is ready again.
+    private void RefreshPower(Player player, bool expanded, bool blocked)
+    {
+        player.GetGuardianPowerHUD(out var power, out float cooldown);
+        bool ready = power && cooldown <= 0;
+        float now = Time.time;
+        if (ready && !powerWasReady) powerReadyAt = now;
+        powerWasReady = ready || !power;
+        float since = now - powerReadyAt;
+        float glow = since >= 0 && since < 2.4f ? (0.5f + 0.5f * Mathf.Sin(since * Mathf.PI * 2 * 1.2f)) * (1 - since / 2.4f) : 0;
+        float band = !power ? 0 : ready ? 1 : power.m_cooldown > 0 ? Mathf.Clamp01(1 - cooldown / power.m_cooldown) : 0;
+        var ink = !power ? (Color)DiamondSlot.EmptyInk : ready ? Color.white : new Color(1, 1, 1, 0.45f);
+        guardian.Show(power ? power.m_icon : null, ink, power, band, glow, 0.8f * glow, 0.3f * glow);
+        bool touch = power && !blocked && ZInput.IsTouchActive();
+        guardian.Icon.raycastTarget = guardianTouch.enabled = touch;
+        if (!expanded || !power)
+        {
+            guardian.Card(false, "", "", "");
+            return;
+        }
+        string state = ready ? Localization.instance.Localize("$hud_ready") : MenuStyle.Translate("Recharging", "Перезарядка");
+        guardian.Card(true, Localization.instance.Localize(power.m_name), state,
+            ready ? "" : StatusEffect.GetTimeString(Mathf.Ceil(cooldown), false, true));
     }
 
     private void RefreshHealth(Player player, bool inventoryOpen)
@@ -173,8 +271,8 @@ internal sealed class VitalsView
         float current = Mathf.Clamp(player.GetHealth(), 0, Mathf.Max(max, 0));
         float now = Time.time;
         // Valheim lengthens its own bar with maximum health; this gauge grows the same way, upwards.
-        float room = ((RectTransform)root.parent).rect.height * 0.5f;
-        float target = Mathf.Clamp(70 + nativeHealth.rect.width * 1.3f, 104, Mathf.Max(104, room));
+        float room = ((RectTransform)root.parent).rect.height * 0.5f / Scale;
+        float target = Mathf.Clamp(GaugeMinimum - 34 + nativeHealth.rect.width * 1.3f, GaugeMinimum, Mathf.Max(GaugeMinimum, room));
         if (player != watched)
         {
             watched = player;
@@ -261,6 +359,32 @@ internal sealed class VitalsView
         bool show = strength > 0;
         if (vignette.gameObject.activeSelf != show) vignette.gameObject.SetActive(show);
         if (show) vignette.Set(strength, beat);
+        RefreshAlarm(player, visible, fraction);
+    }
+
+    // Low health makes the bar flicker red; each flicker cycle starts with the warning sound.
+    private void RefreshAlarm(Player player, bool visible, float fraction)
+    {
+        bool low = visible && alarmThreshold > 0 && fraction < alarmThreshold && !player.IsDead();
+        float now = Time.time;
+        float cycle = Mathf.Max(1.6f, (alarmSound?.Length ?? 0) + 0.5f);
+        float alarm = 0;
+        if (low)
+        {
+            if (now - alarmAt >= cycle || alarmAt < 0)
+            {
+                alarmAt = now;
+                alarmSound?.Play(alarmVolume);
+            }
+            float t = now - alarmAt;
+            alarm = Mathf.Max(Pulse(t, 0.45f), 0.65f * Pulse(t - 0.5f, 0.45f), 0.25f);
+        }
+        else if (alarmAt >= 0)
+        {
+            alarmAt = -10;
+            alarmSound?.Stop();
+        }
+        gauge.SetAlarm(alarm);
     }
 
     private void Hide(RectTransform source)
@@ -276,15 +400,57 @@ internal sealed class VitalsView
         if (text && text.enabled && hiddenText.Add(text)) text.enabled = false;
     }
 
+    // With the inventory open, whatever the pointer rests on in the block explains itself.
+    private void RefreshTips(Player player, bool expanded, List<Player.Food> food)
+    {
+        if (!expanded || !VitalsTips.Pointer(out var screen))
+        {
+            tips.Clear();
+            return;
+        }
+        var camera = tips.Camera;
+        var effect = effects.At(screen, camera);
+        if (effect)
+        {
+            tips.Effect(effect, screen);
+            return;
+        }
+        if (rested.Contains(screen, camera))
+        {
+            tips.Rested(player, screen);
+            return;
+        }
+        if (guardian.Contains(screen, camera))
+        {
+            tips.Power(player, screen);
+            return;
+        }
+        for (int i = 0; i < foods.Length; i++)
+        {
+            if (i >= food.Count || !foods[i].Contains(screen, camera)) continue;
+            tips.Food(food[i], screen);
+            return;
+        }
+        if (RectTransformUtility.RectangleContainsScreenPoint(healthRoot, screen, camera))
+        {
+            tips.Health(player, screen);
+            return;
+        }
+        tips.Clear();
+    }
+
     internal void Dispose()
     {
+        tips?.Dispose();
         effects?.Dispose();
+        bars?.Dispose();
         foreach (var state in hidden) state.Restore();
         foreach (var text in hiddenText)
             if (text) text.enabled = true;
         ItemUi.Destroy(aim);
         ItemUi.Destroy(root);
         ItemUi.Destroy(vignette);
+        alarmSound?.Dispose();
     }
 
     private static TextMeshProUGUI Number(Transform parent, string name, TMP_FontAsset font, float size, Color color)
@@ -293,66 +459,5 @@ internal sealed class VitalsView
         text.alignment = TextAlignmentOptions.Center;
         text.textWrappingMode = TextWrappingModes.NoWrap;
         return text;
-    }
-
-    private static void UpdateNumber(TMP_Text label, float current, float max, ref int cachedCurrent, ref int cachedMax)
-    {
-        int capacity = Mathf.Max(0, Mathf.CeilToInt(max));
-        int amount = Mathf.Clamp(Mathf.CeilToInt(current), 0, capacity);
-        if (amount == cachedCurrent && capacity == cachedMax) return;
-        label.SetText("{0} / {1}", amount, capacity);
-        cachedCurrent = amount;
-        cachedMax = capacity;
-    }
-
-    private sealed class TimedSlot
-    {
-        internal readonly Image Icon;
-        private readonly Image timerShade;
-        private readonly TextMeshProUGUI timer;
-        private int lastSecond = -1;
-
-        internal TimedSlot(Transform parent, Artwork art, TMP_FontAsset font, string name, float x, float y, float size)
-        {
-            var face = ItemUi.Image(parent, name, art["slot"]);
-            ItemUi.TopLeft(face.rectTransform, x, y, size, size);
-            Icon = ItemUi.Image(face.transform, "Icon");
-            Icon.preserveAspect = true;
-            ItemUi.Stretch(Icon.rectTransform, Vector2.one * 3, Vector2.one * -3);
-            timerShade = HudStyle.Shadow(face.transform, art, 0.96f);
-            ItemUi.TopLeft(timerShade.rectTransform, (size - 66) / 2, size - 13, 66, 26);
-            timer = Number(face.transform, "Remaining", font, 14, ItemUi.Ink);
-            ItemUi.TopLeft(timer.rectTransform, (size - 66) / 2, size - 9, 66, 18);
-            timerShade.enabled = timer.enabled = false;
-        }
-
-        internal void RefreshFood(Player.Food food, Sprite empty)
-        {
-            RefreshIcon(food != null ? food.m_item.GetIcon() : empty, food != null);
-            int second = food != null ? Mathf.CeilToInt(food.m_time) : -1;
-            if (second == lastSecond) return;
-            lastSecond = second;
-            RefreshTimer(second >= 0 ? StatusEffect.GetTimeString(second, false, true) : "");
-        }
-
-        internal void Refresh(Sprite icon, bool active, string time)
-        {
-            RefreshIcon(icon, active);
-            RefreshTimer(time);
-        }
-
-        private void RefreshIcon(Sprite icon, bool active)
-        {
-            Icon.sprite = icon;
-            Icon.enabled = icon;
-            Icon.color = active ? Color.white : new Color32(103, 93, 82, 180);
-        }
-
-        private void RefreshTimer(string time)
-        {
-            if (timer.text == time) return;
-            timer.text = time;
-            timerShade.enabled = timer.enabled = !string.IsNullOrEmpty(time);
-        }
     }
 }

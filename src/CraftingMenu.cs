@@ -37,6 +37,7 @@ internal sealed class CraftingMenu : IDisposable
     private readonly PlayersPage playersPage;
     private readonly InlinePage[] pages;
     private readonly RecipeCard card;
+    private readonly CraftingLayout layout;
     private readonly Button[] buttons;
     private readonly List<RectTransform> recipeRows = new();
     private readonly float spacing;
@@ -59,6 +60,7 @@ internal sealed class CraftingMenu : IDisposable
         recipeBaseHeight = RecipeBaseHeight(gui);
         gui.m_recipeListSpace = Mathf.Max(36, spacing);
         recipeScroll = gui.m_recipeListRoot.GetComponentInParent<ScrollRect>(true);
+        layout = new CraftingLayout(gui, style, art, font);
         if (gui.m_recipeDecription && gui.m_recipeName) card = new RecipeCard(gui, style, art, font);
 
         var craft = gui.m_crafting;
@@ -68,13 +70,12 @@ internal sealed class CraftingMenu : IDisposable
         var backdrop = ItemUi.Image(content, "Background", art["panel"]);
         backdrop.raycastTarget = true;
         ItemUi.Stretch(backdrop.rectTransform, Vector2.zero, Vector2.zero);
-        title = MenuStyle.Label(content, "Title", font, "", 23, ItemUi.Accent);
-        title.fontStyle = FontStyles.Bold;
+        title = MenuStyle.Label(content, "Title", HudStyle.BrandFont(font), "", 24, ItemUi.Accent);
         title.richText = false;
         Put(title.rectTransform, 20, 16, 20, 30);
-        var line = ItemUi.Image(content, "HeaderDivider");
+        var line = ItemUi.Image(content, "HeaderDivider", art["meter-fill"]);
         line.color = MenuStyle.Edge;
-        Put(line.rectTransform, 20, 54, 20, 1);
+        Put(line.rectTransform, 20, 54, 20, 2);
 
         var body = ItemUi.Rect(content, "Body");
         ItemUi.Stretch(body, new Vector2(16, 14), new Vector2(-16, -65));
@@ -100,8 +101,7 @@ internal sealed class CraftingMenu : IDisposable
             if (child != tabs) style.Hide(child.gameObject);
         var tabBg = ItemUi.Image(tabs, "Background", art["panel"]);
         ItemUi.Stretch(tabBg.rectTransform, Vector2.zero, Vector2.zero);
-        identity = MenuStyle.Label(tabs, "PlayerName", font, "", 20, ItemUi.Accent);
-        identity.fontStyle = FontStyles.Bold;
+        identity = MenuStyle.Label(tabs, "PlayerName", HudStyle.BrandFont(font), "", 21, ItemUi.Accent);
         identity.richText = false;
         Put(identity.rectTransform, 17, 9, 17, 27);
 
@@ -302,6 +302,7 @@ internal sealed class CraftingMenu : IDisposable
         sheet.Refresh(player);
         playersPage.Refresh();
 
+        if (selected == Page.Craft) layout.Refresh();
         if (pendingFilter && selected == Page.Craft)
         {
             pendingFilter = false;

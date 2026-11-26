@@ -13,6 +13,36 @@ internal static class HudStyle
         return label && label.font ? label.font : fallback;
     }
 
+    private static TMP_FontAsset brand, brandLight;
+
+    // Valheim's own carved display face (Norse), used for titles, tabs and buttons.
+    internal static TMP_FontAsset BrandFont(TMP_FontAsset fallback)
+    {
+        if (!brand) FindBrand();
+        return brand ? brand : DisplayFont(fallback);
+    }
+
+    // The same face in its regular weight, for small headings and tab labels, where the bold cut
+    // clogs up.
+    internal static TMP_FontAsset BrandLight(TMP_FontAsset fallback)
+    {
+        if (!brandLight) FindBrand();
+        return brandLight ? brandLight : BrandFont(fallback);
+    }
+
+    private static void FindBrand()
+    {
+        foreach (var font in Resources.FindObjectsOfTypeAll<TMP_FontAsset>())
+        {
+            if (!font) continue;
+            string name = font.name.ToLowerInvariant();
+            if (!name.Contains("norse")) continue;
+            if (name.Contains("bold")) brand ??= font;
+            else brandLight ??= font;
+        }
+        brand ??= brandLight;
+    }
+
     internal static Image Shadow(Transform parent, Artwork art, float opacity)
     {
         var shadow = ItemUi.Image(parent, "Shadow", art["radial-shadow"]);

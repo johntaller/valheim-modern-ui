@@ -9,6 +9,7 @@ internal sealed class Theme
 {
     internal readonly bool Enabled;
     internal readonly float Padding, CompassHighlightDistance, CompassMarkerDistance, PlayerDetectionDistance;
+    internal readonly float LowHealthAlarm, LowHealthVolume;
     internal readonly Color Frame, Background, Health, Stamina, Text;
 
     internal Theme(string json)
@@ -52,6 +53,8 @@ internal sealed class Theme
             ? 500 : Number("compassMarkerDistance", 0, float.MaxValue);
         PlayerDetectionDistance = data["playerDetectionDistance"] == null
             ? 500 : Number("playerDetectionDistance", 0, float.MaxValue);
+        LowHealthAlarm = data["lowHealthAlarm"] == null ? 0.25f : Number("lowHealthAlarm", 0, 1);
+        LowHealthVolume = data["lowHealthVolume"] == null ? 1f : Number("lowHealthVolume", 0, 1);
         Frame = Tint("frame");
         Background = Tint("background");
         Health = Tint("health");
