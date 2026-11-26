@@ -50,7 +50,7 @@ internal sealed class RecipeCard : IDisposable
 
         name = gui.m_recipeName.rectTransform;
         Remember(name);
-        Restyle(gui.m_recipeName, font, ItemUi.Ink, 22, 14, FontStyles.Bold, TextAlignmentOptions.MidlineLeft);
+        Restyle(gui.m_recipeName, HudStyle.BrandFont(font), ItemUi.Ink, 22, 14, FontStyles.Normal, TextAlignmentOptions.MidlineLeft);
         description = gui.m_recipeDecription.rectTransform;
         Remember(description);
         Restyle(gui.m_recipeDecription, font, ItemUi.Muted, 16, 12, FontStyles.Normal, TextAlignmentOptions.TopLeft);
@@ -64,9 +64,8 @@ internal sealed class RecipeCard : IDisposable
         requirementsRule.color = Rule;
         Bottom(requirementsRule.rectTransform, RequirementsTop - 8, 1);
         style.Claim(requirementsRule);
-        requirementsLabel = MenuStyle.Label(panel, "NewUI_RequirementsLabel", font,
-            MenuStyle.Translate("Requires", "Требуется"), 14, ItemUi.Muted);
-        requirementsLabel.fontStyle = FontStyles.Bold;
+        requirementsLabel = MenuStyle.Label(panel, "NewUI_RequirementsLabel", HudStyle.BrandFont(font),
+            MenuStyle.Translate("Requires", "Требуется"), 15, ItemUi.Muted);
         Bottom(requirementsLabel.rectTransform, RequirementsTop - 12, 20);
 
         if (gui.m_variantButton)
@@ -82,7 +81,7 @@ internal sealed class RecipeCard : IDisposable
         {
             if (gui.m_craftButton.targetGraphic is Image face) Claim(face, "selected", Color.white);
             var label = gui.m_craftButton.GetComponentInChildren<TMP_Text>(true);
-            if (label) Restyle(label, font, ItemUi.Accent, 22, 14, FontStyles.Bold, TextAlignmentOptions.Center);
+            if (label) Restyle(label, HudStyle.BrandFont(font), ItemUi.Accent, 22, 14, FontStyles.Normal, TextAlignmentOptions.Center);
         }
         StyleProgress(font);
 

@@ -23,6 +23,7 @@ internal sealed class ItemTooltip
     private readonly Image weightIcon;
     private readonly Image durabilityTrack, durabilityFill;
     private ItemDrop.ItemData lastItem;
+    private Sprite lastSprite;
     private string lastText, lastTopic, lastFooter;
     private bool lastCheated;
     private int lastStack;
@@ -39,8 +40,7 @@ internal sealed class ItemTooltip
         icon = ItemUi.Image(header.transform, "Icon");
         icon.preserveAspect = true;
         ItemUi.Stretch(icon.rectTransform, Vector2.one * 5, -Vector2.one * 5);
-        title = ItemUi.Text(card, "ItemName", font, 22, ItemUi.Ink);
-        title.fontStyle = FontStyles.Bold;
+        title = ItemUi.Text(card, "ItemName", HudStyle.BrandFont(font), 22, ItemUi.Ink);
         title.alignment = TextAlignmentOptions.MidlineLeft;
         title.textWrappingMode = TextWrappingModes.Normal;
         title.enableAutoSizing = true;
@@ -101,7 +101,7 @@ internal sealed class ItemTooltip
         bool anchored = ZInput.IsExclusiveGamepadActive() || ZInput.IsTouchActive();
         Camera camera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
         Vector2 screen = anchored ? RectTransformUtility.WorldToScreenPoint(camera, slot.TransformPoint(slot.rect.center)) : ZInput.pointerPosition;
-        Show(item, owner.m_topic, owner.m_text, "", screen);
+        Show(item, null, owner.m_topic, owner.m_text, "", screen);
     }
 
     internal void RefreshPointer(UITooltip owner, ItemDrop.ItemData item)
@@ -121,7 +121,7 @@ internal sealed class ItemTooltip
         string text = owner.m_text;
         if (string.IsNullOrEmpty(text))
             text = item == lastItem && card.gameObject.activeSelf ? lastText : item.GetTooltip();
-        Show(item, item.m_shared.m_name, text, "", ZInput.pointerPosition);
+        Show(item, null, item.m_shared.m_name, text, "", ZInput.pointerPosition);
     }
 
     internal void RefreshWorld(ItemDrop.ItemData item, Vector2 screen, string pickupHint)
@@ -132,30 +132,53 @@ internal sealed class ItemTooltip
             return;
         }
         string text = item == lastItem && card.gameObject.activeSelf ? lastText : item.GetTooltip();
-        Show(item, item.m_shared.m_name, text, pickupHint, screen);
+        Show(item, null, item.m_shared.m_name, text, pickupHint, screen);
     }
 
-    private void Show(ItemDrop.ItemData item, string topic, string text, string pickupHint, Vector2 screen)
+    // A card in the same style for something that is not an item: a title with an optional icon,
+    // the details, and an optional line at the bottom.
+    internal void RefreshInfo(Sprite sprite, string topic, string text, string footnote, Vector2 screen) =>
+        Show(null, sprite, topic, text ?? "", footnote ?? "", screen, 18);
+
+    // An item card next to the pointer, with a line of its own at the bottom.
+    internal void RefreshItem(ItemDrop.ItemData item, string footnote, Vector2 screen)
+    {
+        if (item == null)
+        {
+            Hide();
+            return;
+        }
+        string text = item == lastItem && card.gameObject.activeSelf ? lastText : item.GetTooltip();
+        Show(item, null, item.m_shared.m_name, text, footnote ?? "", screen, 18);
+    }
+
+    internal void Clear() => Hide();
+
+    private void Show(ItemDrop.ItemData item, Sprite sprite, string topic, string text, string pickupHint, Vector2 screen,
+        float offset = -1)
     {
         if (!card.gameObject.activeSelf) card.gameObject.SetActive(true);
         var canvasRect = (RectTransform)canvas.transform;
         var bounds = canvasRect.rect;
         float width = Mathf.Max(1, Mathf.Min(340, bounds.width - 24));
         float maxHeight = Mathf.Max(1, bounds.height - 24);
-        if (lastItem != item || lastText != text || lastTopic != topic || lastFooter != pickupHint
-            || lastCheated != item.m_cheated || lastStack != item.m_stack || lastWidth != width || lastMaxHeight != maxHeight)
+        bool cheated = item != null && item.m_cheated;
+        int count = item?.m_stack ?? 0;
+        if (lastItem != item || lastSprite != sprite || lastText != text || lastTopic != topic || lastFooter != pickupHint
+            || lastCheated != cheated || lastStack != count || lastWidth != width || lastMaxHeight != maxHeight)
         {
             lastItem = item;
-            lastStack = item.m_stack;
+            lastSprite = sprite;
+            lastStack = count;
             lastText = text;
             lastTopic = topic;
             lastFooter = pickupHint;
-            lastCheated = item.m_cheated;
+            lastCheated = cheated;
             lastWidth = width;
             lastMaxHeight = maxHeight;
-            Layout(item, width, maxHeight);
+            Layout(item, sprite, width, maxHeight);
         }
-        if (durabilityTrack.enabled)
+        if (item != null && durabilityTrack.enabled)
         {
             float remaining = Mathf.Clamp01(item.GetDurabilityPercentage());
             durabilityFill.fillAmount = remaining > 0 ? remaining : 1;
@@ -164,7 +187,7 @@ internal sealed class ItemTooltip
         Camera camera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
         RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, screen, camera, out var pointer);
         float height = card.rect.height;
-        float offset = pickupHint.Length > 0 ? 62 : 18;
+        if (offset < 0) offset = pickupHint.Length > 0 ? 62 : 18;
         float x = pointer.x + offset;
         if (x + width > bounds.xMax - 12) x = pointer.x - width - offset;
         float y = pointer.y - 16;
@@ -175,10 +198,11 @@ internal sealed class ItemTooltip
         if (card.GetSiblingIndex() != canvas.transform.childCount - 1) card.SetAsLastSibling();
     }
 
-    private void Layout(ItemDrop.ItemData item, float width, float maxHeight)
+    private void Layout(ItemDrop.ItemData item, Sprite sprite, float width, float maxHeight)
     {
         const int padding = 16;
-        int bannerHeight = item.m_cheated ? 26 : 0;
+        bool isItem = item != null;
+        int bannerHeight = isItem && item.m_cheated ? 26 : 0;
         int start = bannerHeight + 12;
         int bodyY = start + 60;
         float bodyWidth = Mathf.Max(1, width - padding * 2);
@@ -188,19 +212,21 @@ internal sealed class ItemTooltip
         text = text.Replace("<color=orange>", "<color=#E8BC77>").Replace("<color=yellow>", "<color=#F0D59B>");
         title.text = Localization.instance.Localize(lastTopic);
         details.text = text;
-        icon.sprite = item.GetIcon();
+        icon.sprite = isItem ? item.GetIcon() : sprite;
         icon.enabled = icon.sprite;
-        banner.gameObject.SetActive(item.m_cheated);
-        if (item.m_cheated) warning.text = warningText;
+        header.enabled = icon.enabled || isItem;
+        banner.gameObject.SetActive(bannerHeight > 0);
+        if (bannerHeight > 0) warning.text = warningText;
 
         bool withFooter = lastFooter.Length > 0;
         const int footerHeight = 36;
-        stack.enabled = weight.enabled = weightIcon.enabled = true;
-        durabilityTrack.enabled = durabilityFill.enabled = item.m_shared.m_useDurability;
-        stack.text = $"×{item.m_stack}";
-        weight.text = $"{item.GetWeight():0.##} " + MenuStyle.Translate("kg", "кг");
-        float rightColumn = Mathf.Max(65, Mathf.Ceil(stack.GetPreferredValues(stack.text).x) + 11);
-        float bottomSpace = padding + footerHeight;
+        stack.enabled = weight.enabled = weightIcon.enabled = isItem;
+        durabilityTrack.enabled = durabilityFill.enabled = isItem && item.m_shared.m_useDurability;
+        stack.text = isItem ? $"×{item.m_stack}" : "";
+        weight.text = isItem ? $"{item.GetWeight():0.##} " + MenuStyle.Translate("kg", "кг") : "";
+        float rightColumn = isItem ? Mathf.Max(65, Mathf.Ceil(stack.GetPreferredValues(stack.text).x) + 11) : 0;
+        // Item cards always keep the bottom row for the weight; other cards only when they have a line there.
+        float bottomSpace = isItem || withFooter ? padding + footerHeight : padding;
         float available = Mathf.Max(1, maxHeight - bodyY - bottomSpace);
         details.fontSize = 16;
         ItemUi.TopLeft(details.rectTransform, padding, bodyY, bodyWidth, available);
@@ -219,9 +245,10 @@ internal sealed class ItemTooltip
         ItemUi.TopLeft(surface.rectTransform, 0, bannerHeight, width, Mathf.Max(1, height - bannerHeight));
         ItemUi.TopLeft(header.rectTransform, padding, start, 42, 42);
         // Items with levels name theirs under the title, in the color of the slot backlight.
-        bool levels = ItemQualityBadge.HasLevels(item);
-        float titleWidth = Mathf.Max(1, bodyWidth - 54 - rightColumn);
-        ItemUi.TopLeft(title.rectTransform, padding + 54, start, titleWidth, levels ? 26 : 42);
+        bool levels = isItem && ItemQualityBadge.HasLevels(item);
+        float titleLeft = header.enabled ? 54 : 0;
+        float titleWidth = Mathf.Max(1, bodyWidth - titleLeft - rightColumn);
+        ItemUi.TopLeft(title.rectTransform, padding + titleLeft, start, titleWidth, levels ? 26 : 42);
         quality.enabled = levels;
         qualityGlow.enabled = levels && item.m_quality > 1;
         if (levels)
@@ -241,13 +268,14 @@ internal sealed class ItemTooltip
         footer.enabled = withFooter;
         footer.text = lastFooter;
         ItemUi.TopLeft(footerRule.rectTransform, padding, height - footerHeight - 7, bodyWidth, 1);
-        float weightWidth = Mathf.Ceil(weight.GetPreferredValues(weight.text).x);
+        footerRule.enabled = isItem || withFooter;
+        float weightWidth = isItem ? Mathf.Ceil(weight.GetPreferredValues(weight.text).x) : 0;
         footer.alignment = TextAlignmentOptions.MidlineLeft;
         footer.enableAutoSizing = true;
         footer.fontSizeMin = 11;
         footer.fontSizeMax = 15;
         float footerTop = height - footerHeight - 4;
-        ItemUi.TopLeft(footer.rectTransform, padding, footerTop, Mathf.Max(1, bodyWidth - weightWidth - 30), footerHeight);
+        ItemUi.TopLeft(footer.rectTransform, padding, footerTop, Mathf.Max(1, bodyWidth - (isItem ? weightWidth + 30 : 0)), footerHeight);
         ItemUi.TopLeft(weight.rectTransform, width - padding - weightWidth, footerTop, weightWidth, footerHeight);
         ItemUi.TopLeft(weightIcon.rectTransform, width - padding - weightWidth - 21, footerTop + 10, 16, 16);
     }

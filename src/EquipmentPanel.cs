@@ -38,7 +38,7 @@ internal sealed class EquipmentPanel
         bool russian = Localization.instance.GetSelectedLanguage() == "Russian";
         Rect = ItemUi.Image(parent, "NewUI_Equipment", art["panel"]).rectTransform;
         Rect.sizeDelta = new Vector2(Width, BaseHeight);
-        var title = Label(Rect, "Title", font, 18, ItemUi.Ink, russian ? "Экипировка" : "Equipment");
+        var title = Label(Rect, "Title", HudStyle.BrandLight(font), 19, ItemUi.Ink, russian ? "Экипировка" : "Equipment");
         title.fontStyle = FontStyles.Bold;
         ItemUi.TopLeft(title.rectTransform, Padding, 10, ContentWidth, 25);
         cells = ItemUi.Rect(Rect, "Cells");

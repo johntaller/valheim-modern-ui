@@ -21,8 +21,22 @@ internal sealed class HealthGauge : MaskableGraphic
 
     private readonly List<Vector2> polygon = new(), clipped = new(), scratch = new();
     private Color fillCenter = new Color32(210, 36, 45, 255), fillEdge = new Color32(146, 19, 27, 255);
-    private float fill, trail, flash, pulse = -1, hurt, grow;
-    private float shownFill = -1, shownTrail, shownFlash, shownPulse, shownHurt, shownGrow;
+    private float fill, trail, flash, pulse = -1, hurt, grow, alarm;
+    private float shownFill = -1, shownTrail, shownFlash, shownPulse, shownHurt, shownGrow, shownAlarm;
+
+    private BloodSwirl swirl;
+
+    protected override void Awake()
+    {
+        base.Awake();
+        // Slow swirls of darker and lighter blood drift inside the fill, so it never reads as a
+        // flat slab of red.
+        var layer = ItemUi.Rect(transform, "BloodSwirl");
+        ItemUi.Stretch(layer, Vector2.zero, Vector2.zero);
+        swirl = layer.gameObject.AddComponent<BloodSwirl>();
+        swirl.Owner = this;
+        swirl.raycastTarget = false;
+    }
 
     internal void SetTint(Color health)
     {
@@ -30,6 +44,13 @@ internal sealed class HealthGauge : MaskableGraphic
         fillCenter = Color.Lerp(health, new Color32(214, 36, 45, 255), 0.72f);
         fillEdge = Color.Lerp(fillCenter, Color.black, 0.32f);
         SetVerticesDirty();
+    }
+
+    // Low health: 0 is calm, 1 is the brightest point of the red flicker.
+    internal void SetAlarm(float value)
+    {
+        alarm = value;
+        if (Mathf.Abs(shownAlarm - value) > 0.01f) SetVerticesDirty();
     }
 
     // fill and trail are fractions of the bar; flash, pulse and hurt are animation phases from 0 to 1.
@@ -55,6 +76,7 @@ internal sealed class HealthGauge : MaskableGraphic
         shownPulse = pulse;
         shownHurt = hurt;
         shownGrow = grow;
+        shownAlarm = alarm;
         var rect = GetPixelAdjustedRect();
         float half = rect.width * 0.5f - Outline - 3;
         if (half <= 1 || rect.height <= half * 4) return;
@@ -69,6 +91,11 @@ internal sealed class HealthGauge : MaskableGraphic
             glow.a = (byte)(150 * flash);
             Ring(mesh, cx, top, bottom, half, Outline, 9 * flash + 3, glow);
         }
+        if (alarm > 0)
+        {
+            var red = new Color(1, 0.16f, 0.12f, 0.75f * alarm);
+            Ring(mesh, cx, top, bottom, half, Outline, 6 + 8 * alarm, red);
+        }
         if (grow > 0)
         {
             var gold = (Color)ItemUi.Accent;
@@ -81,7 +108,7 @@ internal sealed class HealthGauge : MaskableGraphic
         Body(polygon, cx, top + Outline + 1, bottom - Outline - 1, half + Outline + 1);
         Fan(mesh, polygon, _ => Shade);
         Body(polygon, cx, top + Outline, bottom - Outline, half + Outline);
-        var border = Color.Lerp(Border, Halo, flash * 0.6f);
+        var border = Color.Lerp(Border, Halo, Mathf.Max(flash * 0.6f, alarm));
         Fan(mesh, polygon, _ => border);
 
         float height = top - bottom;
@@ -92,6 +119,8 @@ internal sealed class HealthGauge : MaskableGraphic
         float trailTop = bottom + height * Mathf.Clamp01(trail);
         Color center = Color.Lerp(fillCenter, new Color32(255, 112, 104, 255), flash * 0.75f + hurt * 0.35f);
         Color edge = Color.Lerp(fillEdge, fillCenter, flash * 0.6f);
+        center = Color.Lerp(center, new Color32(255, 58, 50, 255), alarm);
+        edge = Color.Lerp(edge, new Color32(228, 30, 30, 255), alarm * 0.8f);
         if (trailTop > fillTop + 0.5f)
         {
             var paleTrail = (Color)Trail;
@@ -134,6 +163,57 @@ internal sealed class HealthGauge : MaskableGraphic
                     });
                 }
             }
+        }
+    }
+
+    // The swirl layer: the filled part below its seam, twice, each pass with the swirl texture
+    // drifting its own way at its own scale.
+    private void PaintSwirl(VertexHelper mesh, Rect rect, float time)
+    {
+        float half = rect.width * 0.5f - Outline - 3;
+        if (shownFill <= 0 || half <= 1 || rect.height <= half * 4) return;
+        float cx = rect.center.x;
+        float top = rect.yMax - Outline - 3;
+        float bottom = rect.yMin + Outline + 7;
+        float limit = bottom + (top - bottom) * Mathf.Clamp01(shownFill) - 4;
+        Body(polygon, cx, top, bottom, half);
+        for (int layer = 0; layer < 2; layer++)
+        {
+            // Texture units: the swirl image is twice as tall as it is wide.
+            float width = layer == 0 ? 44 : 70;
+            var drift = layer == 0
+                ? new Vector2(0.06f * Mathf.Sin(time * 0.37f), -time * 0.028f)
+                : new Vector2(0.31f - time * 0.011f, 0.47f + time * 0.017f + 0.03f * Mathf.Sin(time * 0.23f));
+            var tint = new Color(1, 1, 1, layer == 0 ? 1 : 0.6f);
+            for (int i = 0; i < 6; i++)
+            {
+                float a = cx - half + half * 2 * i / 6, b = cx - half + half * 2 * (i + 1) / 6;
+                var shape = Clip(polygon, cx, new Vector2(a, b), limit, false, 0);
+                if (shape.Count < 3) continue;
+                int start = mesh.currentVertCount;
+                foreach (var point in shape)
+                    mesh.AddVert(point, tint, new Vector2((point.x - cx) / width + drift.x, (point.y - bottom) / (width * 2) + drift.y));
+                for (int k = 1; k < shape.Count - 1; k++) mesh.AddTriangle(start, start + k, start + k + 1);
+            }
+        }
+    }
+
+    private sealed class BloodSwirl : MaskableGraphic
+    {
+        private static Texture2D texture;
+        internal HealthGauge Owner;
+
+        public override Texture mainTexture => texture ? texture : texture = SwirlTexture.Create();
+
+        private void LateUpdate()
+        {
+            if (Owner && Owner.shownFill > 0) SetVerticesDirty();
+        }
+
+        protected override void OnPopulateMesh(VertexHelper mesh)
+        {
+            mesh.Clear();
+            if (Owner) Owner.PaintSwirl(mesh, GetPixelAdjustedRect(), Time.unscaledTime);
         }
     }
 
@@ -329,5 +409,77 @@ internal sealed class LowHealthVignette : MaskableGraphic
         if (tx <= ty) point.x = Mathf.Sign(direction.x) * half.x;
         else point.y = Mathf.Sign(direction.y) * half.y;
         return point;
+    }
+}
+
+// A tiling image of blood swirls: domain-warped noise turned into dark clots and paler streaks
+// over transparency, laid over the health fill.
+internal static class SwirlTexture
+{
+    private const int Width = 128, Height = 256;
+
+    internal static Texture2D Create()
+    {
+        var texture = new Texture2D(Width, Height, TextureFormat.RGBA32, false)
+        {
+            name = "NewUI_BloodSwirl",
+            wrapMode = TextureWrapMode.Repeat,
+            filterMode = FilterMode.Bilinear,
+            hideFlags = HideFlags.DontSave
+        };
+        var pixels = new Color32[Width * Height];
+        var dark = new Color(0.22f, 0.0f, 0.02f);
+        var light = new Color(1f, 0.55f, 0.5f);
+        for (int y = 0; y < Height; y++)
+        for (int x = 0; x < Width; x++)
+        {
+            float u = (float)x / Width, v = (float)y / Height;
+            // The warp bends the noise into curling streaks; everything repeats on the tile.
+            float qx = Fbm(u, v, 2, 11), qy = Fbm(u, v, 2, 37);
+            float n = Fbm(u + 0.35f * qx, v + 0.35f * qy, 3, 5);
+            Color pixel;
+            if (n < 0.46f) pixel = new Color(dark.r, dark.g, dark.b, Mathf.SmoothStep(0, 0.5f, (0.46f - n) / 0.2f));
+            else if (n > 0.6f) pixel = new Color(light.r, light.g, light.b, Mathf.SmoothStep(0, 0.14f, (n - 0.6f) / 0.16f));
+            else pixel = new Color(dark.r, dark.g, dark.b, 0);
+            pixels[y * Width + x] = pixel;
+        }
+        texture.SetPixels32(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
+
+    // Fractal noise that tiles on the unit square: each octave's lattice wraps around.
+    private static float Fbm(float u, float v, int cells, int seed)
+    {
+        float sum = 0, amplitude = 0.5f, total = 0;
+        for (int octave = 0; octave < 4; octave++)
+        {
+            int across = cells << octave, down = across * 2;
+            sum += amplitude * Noise(u * across, v * down, across, down, seed + octave * 101);
+            total += amplitude;
+            amplitude *= 0.5f;
+        }
+        return sum / total;
+    }
+
+    private static float Noise(float x, float y, int across, int down, int seed)
+    {
+        int x0 = Mathf.FloorToInt(x), y0 = Mathf.FloorToInt(y);
+        float fx = x - x0, fy = y - y0;
+        fx = fx * fx * (3 - 2 * fx);
+        fy = fy * fy * (3 - 2 * fy);
+        float a = Hash(x0, y0, across, down, seed), b = Hash(x0 + 1, y0, across, down, seed);
+        float c = Hash(x0, y0 + 1, across, down, seed), d = Hash(x0 + 1, y0 + 1, across, down, seed);
+        return Mathf.Lerp(Mathf.Lerp(a, b, fx), Mathf.Lerp(c, d, fx), fy);
+    }
+
+    private static float Hash(int x, int y, int across, int down, int seed)
+    {
+        x = ((x % across) + across) % across;
+        y = ((y % down) + down) % down;
+        uint h = (uint)(x * 374761393 + y * 668265263 + seed * 144269504);
+        h = (h ^ (h >> 13)) * 1274126177u;
+        h ^= h >> 16;
+        return (h & 0xFFFFFF) / (float)0xFFFFFF;
     }
 }

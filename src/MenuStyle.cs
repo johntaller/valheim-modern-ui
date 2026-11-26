@@ -166,6 +166,25 @@ internal sealed class MenuStyle : IDisposable
         Ink(text, color, size);
     }
 
+    // Swaps a native label to another face, such as the carved brand font, until disposal.
+    internal void Font(TMP_Text text, TMP_FontAsset font)
+    {
+        if (!text || !font || text.font == font) return;
+        var previous = text.font;
+        var material = text.fontSharedMaterial;
+        var weight = text.fontStyle;
+        Remember(() =>
+        {
+            if (!text) return;
+            text.font = previous;
+            text.fontSharedMaterial = material;
+            text.fontStyle = weight;
+        });
+        text.font = font;
+        // The carved faces carry their own weight; a synthetic bold on top only smears them.
+        text.fontStyle &= ~FontStyles.Bold;
+    }
+
     internal void Dispose()
     {
         for (int i = undo.Count - 1; i >= 0; i--) undo[i]();
@@ -197,7 +216,7 @@ internal sealed class MenuStyle : IDisposable
         button.targetGraphic = image;
         button.colors = Palette;
         button.onClick.AddListener(() => action());
-        label = Label(button.transform, "Label", font, title, size, ItemUi.Ink, TextAlignmentOptions.Center);
+        label = Label(button.transform, "Label", HudStyle.BrandFont(font), title, size + 1, ItemUi.Ink, TextAlignmentOptions.Center);
         label.enableAutoSizing = true;
         label.fontSizeMin = 11;
         label.fontSizeMax = size;

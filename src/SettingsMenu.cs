@@ -30,6 +30,7 @@ internal sealed class SettingsMenu : IDisposable
     private readonly System.Collections.Generic.HashSet<Button> placedBacks = new();
 
     internal Settings Owner { get; }
+    private readonly TMP_FontAsset brand, brandLight;
 
     internal SettingsMenu(Settings settings, Artwork art)
     {
@@ -42,6 +43,9 @@ internal sealed class SettingsMenu : IDisposable
         var firstTab = handler.m_tabs.Find(tab => tab.m_button)?.m_button;
         var baseFont = firstTab ? firstTab.GetComponentInChildren<TMP_Text>(true)?.font : TMP_Settings.defaultFontAsset;
         var sans = FindSans(settings.transform) ?? baseFont;
+        // Titles, tabs and buttons use the game's carved face; the controls keep the plain one.
+        brand = HudStyle.BrandFont(baseFont);
+        brandLight = HudStyle.BrandLight(baseFont);
 
         frame = ItemUi.Image(parent, "NewUI_Settings", art["panel"]).rectTransform;
         ItemUi.Stretch(frame, new Vector2(3, 6), new Vector2(-3, -6));
@@ -49,9 +53,9 @@ internal sealed class SettingsMenu : IDisposable
         frame.SetAsLastSibling();
         HideNativeChrome(parent, frame);
 
-        var title = MenuStyle.Label(frame, "SettingsTitle", baseFont, Localization.instance.Localize("$menu_settings"),
+        var title = MenuStyle.Label(frame, "SettingsTitle", brand, Localization.instance.Localize("$menu_settings"),
             29, ItemUi.Accent);
-        title.fontStyle = FontStyles.Bold;
+        title.fontStyle = FontStyles.Normal;
         CraftingMenu.Put(title.rectTransform, 23, 15, 23, 42);
 
         var rail = ItemUi.Image(frame, "CategoryRail", art["slot"]).rectTransform;
@@ -64,8 +68,8 @@ internal sealed class SettingsMenu : IDisposable
 
         headingBar = ItemUi.Rect(bodyPanel, "Heading");
         CraftingMenu.Put(headingBar, 19, 8, 16, 38);
-        heading = MenuStyle.Label(headingBar, "CurrentCategory", baseFont, "", 21, ItemUi.Accent);
-        heading.fontStyle = FontStyles.Bold;
+        heading = MenuStyle.Label(headingBar, "CurrentCategory", brand, "", 21, ItemUi.Accent);
+        heading.fontStyle = FontStyles.Normal;
         ItemUi.Stretch(heading.rectTransform, Vector2.zero, new Vector2(-130, 0));
         var separator = ItemUi.Image(bodyPanel, "Divider");
         separator.color = MenuStyle.Edge;
@@ -102,6 +106,7 @@ internal sealed class SettingsMenu : IDisposable
             if (selectedObj) style.Hide(selectedObj.gameObject);
             if (label)
             {
+                style.Font(label, brandLight);
                 style.Text(label, ItemUi.Muted, 16);
                 Align(label, TextAlignmentOptions.MidlineLeft, new Vector4(18, 0, 6, 0));
             }
@@ -174,7 +179,9 @@ internal sealed class SettingsMenu : IDisposable
         rect.anchoredPosition = new Vector2(-right, 17);
         style.Control(button);
         if (primary && button.targetGraphic is Image image) image.sprite = art["selected"];
-        style.Text(button.GetComponentInChildren<TMP_Text>(true), primary ? ItemUi.Accent : ItemUi.Ink, 17);
+        var caption = button.GetComponentInChildren<TMP_Text>(true);
+        style.Font(caption, brand);
+        style.Text(caption, primary ? ItemUi.Accent : ItemUi.Ink, 17);
     }
 
     private static void Move(RectTransform rect, Transform parent)
@@ -259,7 +266,9 @@ internal sealed class SettingsMenu : IDisposable
         rect.sizeDelta = new Vector2(120, 34);
         rect.anchoredPosition = Vector2.zero;
         style.Control(back);
-        style.Text(back.GetComponentInChildren<TMP_Text>(true), ItemUi.Ink, 15);
+        var caption = back.GetComponentInChildren<TMP_Text>(true);
+        style.Font(caption, brand);
+        style.Text(caption, ItemUi.Ink, 15);
     }
 
     public void Dispose()

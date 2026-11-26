@@ -23,6 +23,8 @@ internal sealed class InterfaceSkin : IDisposable
     private readonly NotificationHud notifications;
     private readonly CombatReticle combat;
     private readonly OnlinePlayers onlinePlayers;
+    private readonly ActionProgressHud actionProgress;
+    private readonly KeyHintsColumn keyHints = new();
     private VitalsView vitals;
     private RectTransform pausePlate;
     private bool pauseWasOpen;
@@ -46,6 +48,7 @@ internal sealed class InterfaceSkin : IDisposable
         mapHud = new MapHud(hud, worldRoot, art);
         combat = new CombatReticle(hud, worldRoot, art);
         notifications = new NotificationHud(worldRoot, art, hud.m_healthText.font);
+        actionProgress = new ActionProgressHud(hud, worldRoot, art);
     }
 
     internal void Apply(Theme theme) => vitals?.Apply(theme);
@@ -89,6 +92,8 @@ internal sealed class InterfaceSkin : IDisposable
         items?.Refresh(inventory, player);
         combat?.Refresh(player, visible && !covered && !inventoryOpen && !building && !(player && player.IsTeleporting()));
         notifications?.Refresh(covered);
+        actionProgress?.Refresh(hud, player, visible && !covered);
+        keyHints.Refresh(true);
         if (vitals == null && worldRoot && hud.m_crosshair && hud.m_healthBarRoot && hud.m_staminaBar2Root)
         {
             var canvas = worldRoot.GetComponentInParent<Canvas>(true);
@@ -270,6 +275,8 @@ internal sealed class InterfaceSkin : IDisposable
     {
         vitals?.Dispose();
         notifications?.Dispose();
+        actionProgress?.Dispose();
+        keyHints.Dispose();
         combat?.Dispose();
         onlinePlayers?.Dispose();
         worldInteractions?.Dispose();

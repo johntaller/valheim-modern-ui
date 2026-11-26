@@ -3,6 +3,8 @@
   "compassHighlightDistance": 500,
   "compassMarkerDistance": 500,
   "playerDetectionDistance": 500,
+  "lowHealthAlarm": 0.25,
+  "lowHealthVolume": 1,
   "padding": 2,
   "frame": "#99856D",
   "background": "#211F20F0",

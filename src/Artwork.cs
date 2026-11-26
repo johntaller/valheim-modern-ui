@@ -18,7 +18,7 @@ internal sealed class Artwork : IDisposable
             foreach (string name in new[] { "panel", "slot", "button", "selected", "map-frame", "item-card",
                 "reticle", "player-marker", "meter-fill", "quality-star", "pickup-ring", "disc",
                 "radial-shadow", "map-ornament", "shelter", "campfire", "weight", "player-portrait", "pill",
-                "map-ring", "wind", "glow" })
+                "map-ring", "wind", "glow", "food-empty" })
             {
                 string path = Path.Combine(directory, name + ".png");
                 if (File.Exists(path))
