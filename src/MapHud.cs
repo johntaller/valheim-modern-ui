@@ -16,9 +16,11 @@ internal sealed class MapHud : IDisposable
     private readonly RectTransform root, area, pinRoot, mapRoot, caption;
     // The ring artwork, in its source pixels: the inner circle frames the map and the small
     // circle below it holds the wind indicator.
-    private const float RingWidth = 1093, RingHeight = 1213, RingInner = 452;
-    private static readonly Vector2 RingCenter = new(547, 543), WindCenter = new(546, 1106);
-    private const float WindRadius = 87;
+    private const float RingWidth = 865, RingHeight = 961, RingInner = 396.7f, RingOuter = 420;
+    private static readonly Vector2 RingCenter = new(432.4f, 433.5f), WindCenter = new(432.4f, 865.8f);
+    private const float WindRadius = 68.3f;
+    // The map reaches into the middle of the band so the frame always covers its edge.
+    private const float MapRadius = (RingInner + RingOuter) * 0.5f;
 
     private readonly CircleMap terrain;
     private readonly Image marker, ship, wind, windFace, ring, ringShadow;
@@ -45,16 +47,17 @@ internal sealed class MapHud : IDisposable
         var map = mapRoot = ItemUi.Rect(area, "RoundMinimap");
         ItemUi.Stretch(map, Vector2.zero, Vector2.zero);
         ringShadow = HudStyle.Shadow(map, art, 0.8f);
-        windFace = ItemUi.Image(map, "WindBadge", art["disc"]);
-        windFace.color = new Color32(14, 22, 21, 240);
         var mapBack = ItemUi.Image(map, "Backing", art["disc"]);
         mapBack.color = new Color32(14, 22, 21, 255);
-        ItemUi.Stretch(mapBack.rectTransform, Vector2.one * -3, Vector2.one * 3);
+        ItemUi.Stretch(mapBack.rectTransform, Vector2.zero, Vector2.zero);
         terrain = ItemUi.Rect(map, "MapTexture").gameObject.AddComponent<CircleMap>();
         terrain.raycastTarget = false;
         ItemUi.Stretch(terrain.rectTransform, Vector2.zero, Vector2.zero);
         pinRoot = ItemUi.Rect(map, "Pins");
         ItemUi.Stretch(pinRoot, Vector2.zero, Vector2.zero);
+        // Opaque, and above the map, so nothing of the map shows inside the small circle.
+        windFace = ItemUi.Image(map, "WindBadge", art["disc"]);
+        windFace.color = new Color32(14, 22, 21, 255);
         ring = ItemUi.Image(map, "Ring", art["map-ring"]);
         ring.preserveAspect = true;
         marker = ItemUi.Image(map, "Player", art["player-marker"]);
@@ -215,10 +218,10 @@ internal sealed class MapHud : IDisposable
 
     private void LayoutRing(float size)
     {
-        float scale = size / (RingInner * 2);
+        float scale = size / (MapRadius * 2);
         // Keep the whole ring on screen: it reaches past the map at the top and on the right.
-        area.anchoredPosition = new Vector2(-16 - (RingWidth - RingCenter.x - RingInner) * scale,
-            -14 - (RingCenter.y - RingInner) * scale);
+        area.anchoredPosition = new Vector2(-16 - (RingWidth - RingCenter.x - MapRadius) * scale,
+            -14 - (RingCenter.y - MapRadius) * scale);
         var center = new Vector2(RingWidth, RingHeight) * 0.5f;
         // Source pixels run downwards; UI coordinates run upwards from the map centre.
         Vector2 Place(Vector2 source) => new Vector2(source.x - RingCenter.x, RingCenter.y - source.y) * scale;
@@ -227,7 +230,8 @@ internal sealed class MapHud : IDisposable
         HudStyle.Center(ringShadow.rectTransform, 0, 0, RingWidth * scale * 1.35f, RingHeight * scale * 1.3f);
         ringShadow.rectTransform.anchoredPosition = Place(center) + new Vector2(0, -4);
         var windAt = Place(WindCenter);
-        HudStyle.Center(windFace.rectTransform, windAt.x, windAt.y, WindRadius * scale * 2.15f, WindRadius * scale * 2.15f);
+        float face = (WindRadius + 8) * scale * 2;
+        HudStyle.Center(windFace.rectTransform, windAt.x, windAt.y, face, face);
         HudStyle.Center(wind.rectTransform, windAt.x, windAt.y, WindRadius * scale * 1.45f, WindRadius * scale * 1.45f);
         // The location caption sits under the ring's lowest point.
         caption.anchoredPosition = new Vector2(0, -((RingHeight - RingCenter.y) * scale - size * 0.5f) + 2);

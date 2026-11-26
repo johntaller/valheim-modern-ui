@@ -3,7 +3,7 @@ using HarmonyLib;
 namespace ValheimNewUI;
 
 // Valheim forgets which marker types were hidden on the large map (right-click on a legend icon)
-// whenever the map is rebuilt. Keep the choice in the character's profile and apply it on spawn.
+// whenever the map is rebuilt. Keep the choice in the character's custom data and apply it on spawn.
 internal static class MapFilterMemory
 {
     private const string Key = "valheimnewui_hidden_pins";
@@ -24,8 +24,10 @@ internal static class MapFilterMemory
             var hidden = new System.Collections.Generic.List<string>();
             for (int i = 0; i < visible.Length; i++)
                 if (!visible[i]) hidden.Add(i.ToString());
-            if (hidden.Count > 0) player.AddUniqueKeyValue(Key, string.Join(",", hidden));
-            else player.RemoveUniqueKeyValue(Key);
+            // Custom data rather than a unique key: changing a unique key refreshes the world rates,
+            // and that resets the open large map to the small one.
+            if (hidden.Count > 0) player.m_customData[Key] = string.Join(",", hidden);
+            else player.m_customData.Remove(Key);
         }
     }
 
@@ -38,7 +40,11 @@ internal static class MapFilterMemory
             var visible = map ? Visible(map) : null;
             if (__instance != Player.m_localPlayer || visible == null) return;
             var hidden = new bool[visible.Length];
-            if (__instance.TryGetUniqueKeyValue(Key, out var stored))
+            // Earlier versions kept the choice in a unique key; move it over once.
+            if (!__instance.m_customData.ContainsKey(Key) && __instance.TryGetUniqueKeyValue(Key, out var legacy))
+                __instance.m_customData[Key] = legacy;
+            if (__instance.TryGetUniqueKeyValue(Key, out _)) __instance.RemoveUniqueKeyValue(Key);
+            if (__instance.m_customData.TryGetValue(Key, out var stored))
                 foreach (var part in stored.Split(','))
                     if (int.TryParse(part, out int type) && type >= 0 && type < hidden.Length) hidden[type] = true;
             restoring = true;

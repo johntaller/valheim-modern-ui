@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace ValheimNewUI;
 
-[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.1.1")]
+[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.2.0")]
 public sealed class Plugin : BaseUnityPlugin
 {
     private string themePath, lastContent, lastReadError;
@@ -18,6 +18,8 @@ public sealed class Plugin : BaseUnityPlugin
     private InterfaceSkin skin;
     private SettingsMenu settingsMenu;
     private SelectionMenus selectionMenus;
+    private UpdateNotice updateNotice;
+    private Coroutine updateCheck;
     private Settings failedSettings;
     private FejdStartup failedStartup;
     private Harmony harmony;
@@ -54,6 +56,19 @@ public sealed class Plugin : BaseUnityPlugin
         }
         ReloadTheme();
         playerCards = new PlayerCardSync(transform);
+        try
+        {
+            updateNotice = new UpdateNotice(Config, artwork, Logger);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Could not initialize update notices: {ex.Message}");
+        }
+    }
+
+    private void Start()
+    {
+        if (updateNotice != null) updateCheck = StartCoroutine(updateNotice.Check());
     }
 
     private void ReloadTheme()
@@ -110,6 +125,7 @@ public sealed class Plugin : BaseUnityPlugin
     private void BeforeCanvasRender()
     {
         if (theme.Enabled) PrepareMenus();
+        updateNotice?.Refresh();
         var hud = Hud.instance;
         if (skin != null && (!hud || owner != hud)) Release();
         if (!theme.Enabled || !hud || !hud.m_rootObject || failedHud == hud) return;
@@ -219,6 +235,9 @@ public sealed class Plugin : BaseUnityPlugin
     {
         NativeMessagePatch.SetEnabled(false);
         Canvas.preWillRenderCanvases -= BeforeCanvasRender;
+        if (updateCheck != null) StopCoroutine(updateCheck);
+        updateCheck = null;
+        updateNotice?.Dispose();
         ReleaseMenus();
         Release();
         if (!quitting && harmony != null) EquipmentInventory.Refresh(false);

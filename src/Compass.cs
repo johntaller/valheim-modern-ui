@@ -37,8 +37,7 @@ internal sealed class Compass
             ticks[i] = tick;
             if (major)
             {
-                var label = ItemUi.Text(tick, "Direction", displayFont, 16, ItemUi.Ink);
-                label.fontStyle = FontStyles.Bold;
+                var label = ItemUi.Text(tick, "Direction", HudStyle.BrandLight(displayFont), 16, ItemUi.Ink);
                 label.alignment = TextAlignmentOptions.Center;
                 label.text = directions[i / 6];
                 ItemUi.Stretch(label.rectTransform, new Vector2(0, 5), Vector2.zero);

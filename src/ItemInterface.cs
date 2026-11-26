@@ -19,6 +19,11 @@ internal sealed class ItemInterface : IDisposable
     private readonly QuickSlot[] quickSlots = new QuickSlot[QuickSlots];
     private readonly QuickSlot[] sideSlots = new QuickSlot[EquipmentInventory.QuickSlotCount];
     private float nextBindingLabels;
+    // The quick slots sit in a row under the hotbar in play and move to its right end with the
+    // inventory open, where the backpack takes the room under the hotbar.
+    private readonly Vector2[] sideClosed = new Vector2[EquipmentInventory.QuickSlotCount];
+    private readonly Vector2[] sideOpen = new Vector2[EquipmentInventory.QuickSlotCount];
+    private float sideBlend = -1;
     private readonly Dictionary<Transform, NativeQuickSlot> nativeQuickSlots = new();
     private InventoryPanel panel;
     private CraftingMenu crafting;
@@ -45,11 +50,15 @@ internal sealed class ItemInterface : IDisposable
         var pivot = template.pivot;
         float right = (QuickSlots - 1) * pitch + (1 - pivot.x) * size.x;
         float y = (0.5f - pivot.y) * (size.y - small.y);
+        // Under the hotbar: from its left edge, a little below the bottom of its cells.
+        float under = -pivot.y * size.y - 6 - (1 - pivot.y) * small.y;
         for (int i = 0; i < sideSlots.Length; i++)
         {
             float left = right + gap + i * (small.x + spacing);
+            sideOpen[i] = new Vector2(left + pivot.x * small.x, y);
+            sideClosed[i] = new Vector2(-pivot.x * size.x + i * (small.x + spacing) + pivot.x * small.x, under);
             sideSlots[i] = new QuickSlot(hotbarRoot, template, "NewUI_SideSlot" + (i + 1), small,
-                new Vector2(left + pivot.x * small.x, y), ratio, art, font, "");
+                sideClosed[i], ratio, art, font, "");
         }
     }
 
@@ -74,6 +83,14 @@ internal sealed class ItemInterface : IDisposable
         foreach (var slot in quickSlots) slot.SetVisible(alive);
         bool sides = alive && EquipmentInventory.QuickRow(inventory) >= 0;
         foreach (var slot in sideSlots) slot.SetVisible(sides);
+        float blend = sideBlend < 0 ? (open ? 1 : 0) : Mathf.MoveTowards(sideBlend, open ? 1 : 0, Time.unscaledDeltaTime * 5);
+        if (blend != sideBlend)
+        {
+            sideBlend = blend;
+            float eased = blend * blend * (3 - 2 * blend);
+            for (int i = 0; i < sideSlots.Length; i++)
+                sideSlots[i].Rect.anchoredPosition = Vector2.Lerp(sideClosed[i], sideOpen[i], eased);
+        }
 
         foreach (Transform child in hotbarRoot)
         {

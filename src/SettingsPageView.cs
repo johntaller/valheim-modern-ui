@@ -313,9 +313,9 @@ internal sealed class SettingsPageView
         var rect = ItemUi.Rect(content, "NewUI_Section");
         var layout = rect.gameObject.AddComponent<LayoutElement>();
         layout.minHeight = layout.preferredHeight = rows.Count == 0 && keyGrids.Count == 0 ? 30 : 44;
-        var label = MenuStyle.Label(rect, "Title", sans, title.ToUpperInvariant(), 13, ItemUi.Accent,
+        var label = MenuStyle.Label(rect, "Title", HudStyle.BrandFont(sans), title.ToUpperInvariant(), 16, ItemUi.Accent,
             TextAlignmentOptions.BottomLeft);
-        label.characterSpacing = 6;
+        label.characterSpacing = 3;
         ItemUi.Stretch(label.rectTransform, new Vector2(Inset, 6), new Vector2(-Inset, 0));
         return rect;
     }

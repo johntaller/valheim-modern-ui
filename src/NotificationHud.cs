@@ -79,18 +79,21 @@ internal sealed class NotificationHud : IDisposable
         float column = Mathf.Clamp((width - 40) / 2, 110, 254);
         const float bottom = 211;
         skill.Show(!covered && !hidden ? skillNotice : null, now, 0, -173, 470);
-        Stack(pickups, gained, now, 0, -72, 232, covered, hidden, -1);
+        // Messages rise from the bottom; pickups hang below the action name under the
+        // crosshair and stop above the highest message, so the two never cover each other.
+        float messagesTop = Stack(messages, active, now, 0, bottom, 470, covered, hidden);
+        Stack(pickups, gained, now, 0, -118, 232, covered, hidden, -1, messagesTop - root.rect.height * 0.5f + 6);
         const float discoveryBottom = 24;
         bool hasBuildings = buildingDiscoveries.Exists(notice => notice.Expires > now && (!hidden || notice.Force));
         Stack(items, itemDiscoveries, now, -24 - (hasBuildings ? column + 12 : 0), discoveryBottom, column, covered, hidden);
         Stack(buildings, buildingDiscoveries, now, -24, discoveryBottom, column, covered, hidden);
-        Stack(messages, active, now, 0, bottom, 470, covered, hidden);
         bool death = deathNotice != null && now < deathNotice.Expires;
         announcement.Show(death ? deathNotice : !covered && !hidden ? biomeNotice : null, now);
     }
 
-    private static void Stack(Toast[] views, List<Notice> notices, float now, float x, float y, float width,
-        bool covered, bool hidden, int direction = 1)
+    // Returns where the next toast would go. A downward stack stops before crossing the limit.
+    private static float Stack(Toast[] views, List<Notice> notices, float now, float x, float y, float width,
+        bool covered, bool hidden, int direction = 1, float limit = float.NegativeInfinity)
     {
         notices.RemoveAll(notice => notice.Expires <= now);
         int shown = 0;
@@ -99,11 +102,18 @@ internal sealed class NotificationHud : IDisposable
             foreach (var notice in notices)
             {
                 if (hidden && !notice.Force) continue;
-                y += direction * (views[shown++].Show(notice, now, x, y, width) + 5);
+                float height = views[shown++].Show(notice, now, x, y, width);
+                if (direction < 0 && y - height * 0.5f < limit)
+                {
+                    views[--shown].Show(null, now, 0, 0, width);
+                    break;
+                }
+                y += direction * (height + 5);
                 if (shown == views.Length) break;
             }
         }
         while (shown < views.Length) views[shown++].Show(null, now, 0, 0, width);
+        return y;
     }
 
     private void Add(Notice notice)
