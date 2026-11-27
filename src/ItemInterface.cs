@@ -16,6 +16,8 @@ internal sealed class ItemInterface : IDisposable
     private readonly Artwork art;
     private readonly TMP_FontAsset font;
     private readonly OnlinePlayers players;
+    private readonly RecipePins pins = new();
+    private readonly RecipePinsView hudPins;
     private readonly QuickSlot[] quickSlots = new QuickSlot[QuickSlots];
     private readonly QuickSlot[] sideSlots = new QuickSlot[EquipmentInventory.QuickSlotCount];
     private float nextBindingLabels;
@@ -60,26 +62,28 @@ internal sealed class ItemInterface : IDisposable
             sideSlots[i] = new QuickSlot(hotbarRoot, template, "NewUI_SideSlot" + (i + 1), small,
                 sideClosed[i], ratio, art, font, "");
         }
+        hudPins = new RecipePinsView(hotbarRoot, "NewUI_HudRecipePins", pins, art, font);
     }
 
-    internal void Refresh(InventoryGui gui, Player player)
+    internal void Refresh(InventoryGui gui, Player player, bool showHudPins)
     {
+        pins.Refresh(player);
         if (panel != null && (!gui || panel.Gui != gui)) ReleasePanel();
         if (crafting != null && (!gui || crafting.Gui != gui)) ReleaseCrafting();
         if (crafting == null && gui && gui.m_crafting && gui.m_info && gui.m_recipeListRoot)
-            crafting = new CraftingMenu(gui, art, font, players);
+            crafting = new CraftingMenu(gui, art, font, players, pins);
         crafting?.Refresh(player);
         if (panel == null && gui && gui.m_player && gui.m_playerGrid && gui.m_inventoryRoot && gui.m_weight)
         {
             var canvas = gui.m_inventoryRoot.GetComponentInParent<Canvas>(true);
             var animator = gui.GetComponent<Animator>();
-            if (canvas && animator) panel = new InventoryPanel(gui, animator, canvas.rootCanvas, art, font);
+            if (canvas && animator) panel = new InventoryPanel(gui, animator, canvas.rootCanvas, art, font, pins);
         }
 
         bool alive = player && !player.IsDead();
         bool open = alive && panel != null && panel.IsOpen;
         var inventory = alive ? player.GetInventory() : null;
-        panel?.Refresh(open, player, quickSlots[0].Rect, hotbar.m_elementSpace);
+        panel?.Refresh(open, player, quickSlots[0].Rect, quickSlots[QuickSlots - 1].Rect, hotbar.m_elementSpace);
         foreach (var slot in quickSlots) slot.SetVisible(alive);
         bool sides = alive && EquipmentInventory.QuickRow(inventory) >= 0;
         foreach (var slot in sideSlots) slot.SetVisible(sides);
@@ -91,6 +95,8 @@ internal sealed class ItemInterface : IDisposable
             for (int i = 0; i < sideSlots.Length; i++)
                 sideSlots[i].Rect.anchoredPosition = Vector2.Lerp(sideClosed[i], sideOpen[i], eased);
         }
+        hudPins.Refresh(showHudPins && alive && !open, quickSlots[0].Rect, quickSlots[QuickSlots - 1].Rect,
+            sides ? sideSlots[0].Rect : quickSlots[0].Rect);
 
         foreach (Transform child in hotbarRoot)
         {
@@ -158,6 +164,7 @@ internal sealed class ItemInterface : IDisposable
 
     public void Dispose()
     {
+        hudPins.Dispose();
         ReleaseCrafting();
         ReleasePanel();
         foreach (var entry in nativeQuickSlots.Values) entry.Hidden.Restore();
@@ -338,6 +345,7 @@ internal sealed class ItemInterface : IDisposable
         private readonly SortedDictionary<int, BagSlot> gear = new();
         private readonly ItemTooltip tooltip;
         private readonly InventoryActions actions;
+        private readonly RecipePinsView recipePins;
         private readonly Canvas canvas;
         private readonly List<RaycastResult> hits = new();
         private PointerEventData pointer;
@@ -351,7 +359,7 @@ internal sealed class ItemInterface : IDisposable
 
         internal bool IsOpen => animator && animator.GetBool(Visible);
 
-        internal InventoryPanel(InventoryGui gui, Animator animator, Canvas canvas, Artwork art, TMP_FontAsset font)
+        internal InventoryPanel(InventoryGui gui, Animator animator, Canvas canvas, Artwork art, TMP_FontAsset font, RecipePins pins)
         {
             Gui = gui;
             this.animator = animator;
@@ -413,6 +421,7 @@ internal sealed class ItemInterface : IDisposable
             pickup = new AutoPickupToggle(root, art, font);
             tooltip = new ItemTooltip(canvas, art, font);
             actions = new InventoryActions(gui, canvas, root, art, font);
+            recipePins = new RecipePinsView(gui.m_inventoryRoot, "NewUI_InventoryRecipePins", pins, art, font, gui);
         }
 
         private RectTransform Badge(RectTransform label, TMP_Text neighboringStat)
@@ -429,9 +438,10 @@ internal sealed class ItemInterface : IDisposable
 
         internal InventoryElement GetSideTarget(int index) => sideRow[index]?.Element;
 
-        internal void Refresh(bool open, Player player, RectTransform firstQuickSlot, float pitch)
+        internal void Refresh(bool open, Player player, RectTransform firstQuickSlot, RectTransform lastQuickSlot, float pitch)
         {
             actions.Refresh(open);
+            float pinSpace = recipePins.Refresh(open, firstQuickSlot, lastQuickSlot, firstQuickSlot, actions.IsOpen);
             if (!open)
             {
                 if (wasOpen) Close();
@@ -509,8 +519,8 @@ internal sealed class ItemInterface : IDisposable
 
             if (firstBagSlot && lastBagSlot || equipmentRow == 1 && gear.Count > 0)
             {
-                float scale = FitBackpack(firstBagSlot, lastBagSlot, firstQuickSlot, pitch, storageFirst, storageLast);
-                AlignBag(firstBagSlot, lastBagSlot, firstQuickSlot, pitch, equipmentRow >= 0);
+                float scale = FitBackpack(firstBagSlot, lastBagSlot, firstQuickSlot, pitch, pinSpace, storageFirst, storageLast);
+                AlignBag(firstBagSlot, lastBagSlot, firstQuickSlot, pitch, pinSpace, equipmentRow >= 0);
                 if (storageFirst && storageLast) storage.Fit(storageFirst, storageLast, scale, body);
                 else storage?.Close();
                 if (equipmentRow >= 0) equipment.Refresh(player, equipmentRow);
@@ -668,12 +678,12 @@ internal sealed class ItemInterface : IDisposable
         private float SlideWidth(float pitch, bool showEquipment) => root.rect.width + pitch * 2
             + (showEquipment ? EquipmentPanel.Width + EquipmentPanel.Gap : 0);
 
-        private float FitBackpack(RectTransform first, RectTransform last, RectTransform quickSlot, float pitch,
+        private float FitBackpack(RectTransform first, RectTransform last, RectTransform quickSlot, float pitch, float pinSpace,
             RectTransform storageFirst, RectTransform storageLast)
         {
             float current = playerGridRoot.localScale.y / gridScale.y;
             float bagHeight = first && last ? WorldHeight(first, last) / current : 0;
-            float baseline = quickSlot.TransformPoint(quickSlot.rect.center + Vector2.down * (pitch * 0.5f + 22)).y;
+            float baseline = quickSlot.TransformPoint(quickSlot.rect.center + Vector2.down * (pitch * 0.5f + 22)).y - pinSpace;
             bool hasStorage = storageFirst && storageLast;
             float floor = canvasRect.TransformPoint(new Vector2(0, canvasRect.rect.yMin +
                 (hasStorage ? 30 : VitalsView.Clearance) + 76)).y;
@@ -688,9 +698,10 @@ internal sealed class ItemInterface : IDisposable
             first.TransformPoint(new Vector2(first.rect.xMin, first.rect.yMax)).y
             - last.TransformPoint(new Vector2(last.rect.xMax, last.rect.yMin)).y;
 
-        private void AlignBag(RectTransform first, RectTransform last, RectTransform quickSlot, float pitch, bool showEquipment)
+        private void AlignBag(RectTransform first, RectTransform last, RectTransform quickSlot, float pitch, float pinSpace, bool showEquipment)
         {
             var baseline = quickSlot.TransformPoint(quickSlot.rect.center + Vector2.down * (pitch + 22));
+            baseline.y -= pinSpace;
             var center = first ? first.TransformPoint(first.rect.center) :
                 root.TransformPoint(new Vector2(root.rect.xMin + pitch / 2, root.rect.yMax - pitch / 2));
             var target = root.position + baseline - center;
@@ -790,6 +801,7 @@ internal sealed class ItemInterface : IDisposable
 
         public void Dispose()
         {
+            recipePins.Dispose();
             tooltip.Dispose();
             // Reinsert the detached cells in their original sibling order.
             foreach (var slot in row) slot?.Dispose();

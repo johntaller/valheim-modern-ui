@@ -1,4 +1,5 @@
 using System;
+using System.Reflection.Emit;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -11,27 +12,35 @@ namespace ValheimNewUI;
 // Valheim keeps filling every element, so only their placement and look change.
 internal sealed class RecipeCard : IDisposable
 {
-    private const float Padding = 16, Well = 52, HeaderBottom = 80;
+    private const float Padding = 16, Well = 52, HeaderBottom = 80, PinWidth = 92;
     private const float RequirementsTop = 166, UpgradeTop = 186;
     private static readonly Color32 Rule = new(192, 157, 97, 155);
     private static readonly Color32 Trough = new(8, 13, 15, 235);
     private static readonly Color32 ProgressFill = new(225, 187, 116, 150);
+    private static readonly Func<InventoryGui, Recipe> SelectedCraft = MakeSelectedCraftGetter();
     private static RecipeCard current;
 
     private readonly InventoryGui gui;
     private readonly MenuStyle style;
+    private readonly RecipePins pins;
     private readonly RectTransform panel, name, description;
     private readonly Image well, divider, requirementsRule;
     private readonly TextMeshProUGUI requirementsLabel;
+    private readonly Button pin;
+    private readonly TextMeshProUGUI pinLabel;
+    private readonly Sprite pinFace, unpinFace;
+    private Recipe selectedPin;
+    private string pinId;
     private readonly UITooltip repairTooltip;
     private readonly string repairText;
     private string lastNative, lastStyled;
-    private bool variant, upgrade, laidOut;
+    private bool variant, upgrade, laidOut, pinShown;
 
-    internal RecipeCard(InventoryGui gui, MenuStyle style, Artwork art, TMP_FontAsset font)
+    internal RecipeCard(InventoryGui gui, MenuStyle style, Artwork art, TMP_FontAsset font, RecipePins pins)
     {
         this.gui = gui;
         this.style = style;
+        this.pins = pins;
         panel = (RectTransform)gui.m_recipeDecription.transform.parent;
         if (panel.GetComponent<Image>() is Image surface) Claim(surface, "item-card", Color.white);
 
@@ -76,6 +85,18 @@ internal sealed class RecipeCard : IDisposable
             var label = gui.m_variantButton.GetComponentInChildren<TMP_Text>(true);
             if (label) Restyle(label, font, ItemUi.Ink, 13, 9, FontStyles.Normal, TextAlignmentOptions.Center);
         }
+
+        pin = MenuStyle.Button(panel, art, font, "", TogglePin, out pinLabel, 14);
+        pin.name = "NewUI_PinRecipe";
+        pinLabel.font = font;
+        pinFace = art["button"];
+        unpinFace = art["selected"];
+        style.Claim(pin.targetGraphic);
+        style.Claim(pinLabel);
+        var pinRect = (RectTransform)pin.transform;
+        pinRect.anchorMin = pinRect.anchorMax = pinRect.pivot = Vector2.one;
+        pinRect.anchoredPosition = new Vector2(-Padding, -Padding);
+        pinRect.sizeDelta = new Vector2(PinWidth, 26);
 
         if (gui.m_craftButton)
         {
@@ -176,12 +197,28 @@ internal sealed class RecipeCard : IDisposable
         bool hasVariant = gui.m_variantButton && gui.m_variantButton.gameObject.activeSelf;
         bool hasUpgrade = gui.m_itemCraftType && gui.m_itemCraftType.gameObject.activeSelf
             || gui.m_qualityPanel && gui.m_qualityPanel.gameObject.activeInHierarchy;
-        if (!laidOut || hasVariant != variant || hasUpgrade != upgrade)
+        var selection = gui.m_recipeName.enabled && gui.InCraftTab() ? SelectedCraft(gui) : null;
+        bool showPin = RecipePins.CanPin(selection);
+        if (pin.gameObject.activeSelf != showPin) pin.gameObject.SetActive(showPin);
+        if (showPin)
+        {
+            if (selectedPin != selection)
+            {
+                selectedPin = selection;
+                pinId = RecipePins.Id(selectedPin);
+            }
+            bool pinned = pins.Contains(pinId);
+            ((Image)pin.targetGraphic).sprite = pinned ? unpinFace : pinFace;
+            pinLabel.text = pinned ? MenuStyle.Translate("Unpin", "Открепить") : MenuStyle.Translate("Pin recipe", "Закрепить");
+            pin.interactable = RecipePins.CanEdit(gui);
+        }
+        if (!laidOut || hasVariant != variant || hasUpgrade != upgrade || showPin != pinShown)
         {
             laidOut = true;
             variant = hasVariant;
             upgrade = hasUpgrade;
-            float width = Mathf.Max(1, panel.rect.width - Padding * 3 - Well);
+            pinShown = showPin;
+            float width = Mathf.Max(1, panel.rect.width - Padding * 3 - Well - (showPin ? PinWidth + 6 : 0));
             ItemUi.TopLeft(name, Padding * 2 + Well - 4, Padding, width, variant ? 30 : Well);
             // An upgrade shows its caption above the requirements.
             float bottom = upgrade ? UpgradeTop : RequirementsTop;
@@ -194,6 +231,39 @@ internal sealed class RecipeCard : IDisposable
         bool selected = gui.m_recipeName.enabled;
         well.enabled = divider.enabled = selected;
         requirementsLabel.enabled = requirementsRule.enabled = selected && !upgrade;
+    }
+
+    private void TogglePin()
+    {
+        if (!RecipePins.CanEdit(gui) || !gui.InCraftTab()) return;
+        pins.Toggle(SelectedCraft(gui));
+        Refresh();
+    }
+
+    private static Func<InventoryGui, Recipe> MakeSelectedCraftGetter()
+    {
+        // RecipeDataPair is a private game struct. Read by address without boxing every UI frame.
+        var field = AccessTools.Field(typeof(InventoryGui), "m_selectedRecipe");
+        if (field == null || !field.FieldType.IsValueType) return _ => null;
+        var recipe = AccessTools.PropertyGetter(field.FieldType, "Recipe");
+        var item = AccessTools.PropertyGetter(field.FieldType, "ItemData");
+        if (recipe?.ReturnType != typeof(Recipe) || item?.ReturnType != typeof(ItemDrop.ItemData)) return _ => null;
+        var getter = new DynamicMethod("NewUI_SelectedCraft", typeof(Recipe), new[] { typeof(InventoryGui) },
+            typeof(InventoryGui), true);
+        var il = getter.GetILGenerator();
+        var craft = il.DefineLabel();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldflda, field);
+        il.Emit(OpCodes.Call, item);
+        il.Emit(OpCodes.Brfalse_S, craft);
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Ret);
+        il.MarkLabel(craft);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldflda, field);
+        il.Emit(OpCodes.Call, recipe);
+        il.Emit(OpCodes.Ret);
+        return (Func<InventoryGui, Recipe>)getter.CreateDelegate(typeof(Func<InventoryGui, Recipe>));
     }
 
     // Use the tooltip's warmer stat colors in the native recipe text.
@@ -218,6 +288,7 @@ internal sealed class RecipeCard : IDisposable
         ItemUi.Destroy(divider);
         ItemUi.Destroy(requirementsRule);
         ItemUi.Destroy(requirementsLabel);
+        ItemUi.Destroy(pin);
     }
 
     [HarmonyPatch(typeof(InventoryGui), "UpdateRecipe")]

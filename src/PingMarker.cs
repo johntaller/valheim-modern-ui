@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection.Emit;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -6,29 +7,92 @@ using UnityEngine.UI;
 
 namespace ValheimNewUI;
 
-// A ping reads as a pulse on the spot with the name of whoever sent it underneath, instead of the
-// game's blue "PING" text. The game still places, clamps and removes its marker; the pulse and the
-// name ride on that marker and take over its look.
-[HarmonyPatch(typeof(Chat), "AddInworldText")]
+// Change only the lookup in AddInworldText. Valheim still handles routing, projection, map pins
+// and expiry. Keep one world ping per sender, independent of that sender's normal chat bubble.
+[HarmonyPatch(typeof(Chat), "AddInworldText", typeof(GameObject), typeof(long), typeof(Vector3), typeof(Talker.Type), typeof(UserInfo), typeof(string))]
+internal static class PingWorldTextPatch
+{
+    private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+    {
+        var lookup = AccessTools.Method(typeof(Chat), "FindExistingWorldText", new[] { typeof(long) });
+        var replacement = AccessTools.Method(typeof(PingWorldTextPatch), nameof(FindWorldText));
+        foreach (var instruction in instructions)
+        {
+            if (lookup != null && instruction.Calls(lookup))
+            {
+                // Argument 4 (after this, go, sender ID and position) is the message type.
+                var type = new CodeInstruction(OpCodes.Ldarg_S, (byte)4);
+                type.labels.AddRange(instruction.labels);
+                type.blocks.AddRange(instruction.blocks);
+                yield return type;
+                yield return new CodeInstruction(OpCodes.Call, replacement);
+            }
+            else yield return instruction;
+        }
+    }
+
+    private static Chat.WorldTextInstance FindWorldText(Chat chat, long sender, Talker.Type type)
+    {
+        var texts = chat.WorldTexts;
+        bool ping = type == Talker.Type.Ping;
+        for (int i = 0; i < texts.Count; i++)
+        {
+            var text = texts[i];
+            if (text.m_talkerID != sender) continue;
+            if (NativeMessagePatch.Enabled)
+            {
+                if ((text.m_type == Talker.Type.Ping) == ping) return text;
+                continue;
+            }
+            // Back to the native sender-only lookup. Retire the extra entry created by the split.
+            for (int j = texts.Count - 1; j > i; j--)
+            {
+                var extra = texts[j];
+                if (extra.m_talkerID != sender) continue;
+                texts.RemoveAt(j);
+                if (!extra.m_gui || extra.m_gui == text.m_gui) continue;
+                extra.m_gui.SetActive(false);
+                Object.Destroy(extra.m_gui);
+            }
+            return text;
+        }
+        return null;
+    }
+}
+
+[HarmonyPatch(typeof(Chat), "UpdateWorldTextField", typeof(Chat.WorldTextInstance))]
 internal static class PingMarkerPatch
 {
-    private static void Postfix(Chat __instance, long __1, Talker.Type __3)
+    private static void Postfix(Chat __instance, Chat.WorldTextInstance __0)
     {
-        if (!__instance) return;
-        foreach (var text in __instance.WorldTexts)
+        if (!__0.m_gui) return;
+        var marker = __0.m_gui.GetComponent<PingMarker>();
+        if (!NativeMessagePatch.Enabled || __0.m_type != Talker.Type.Ping || !__0.m_textMeshField)
         {
-            if (text == null || text.m_talkerID != __1 || !text.m_gui) continue;
-            var marker = text.m_gui.GetComponent<PingMarker>();
-            // Chat reuses the same WorldTextInstance for different messages from this sender.
-            if (!NativeMessagePatch.Enabled || __3 != Talker.Type.Ping || text.m_type != Talker.Type.Ping)
-            {
-                if (marker) marker.Restore();
-                return;
-            }
-            if (!marker) marker = text.m_gui.AddComponent<PingMarker>();
-            marker.Restart(text, __instance.m_worldTextTTL);
+            if (marker) marker.Restore();
             return;
         }
+        if (!marker) marker = __0.m_gui.AddComponent<PingMarker>();
+        marker.Restart(__0, __instance.m_worldTextTTL);
+    }
+}
+
+[HarmonyPatch(typeof(Chat), "UpdateWorldTexts", typeof(float))]
+internal static class PingNamePlacement
+{
+    private static readonly List<Rect> Placed = new();
+
+    private static void Postfix(Chat __instance)
+    {
+        if (!NativeMessagePatch.Enabled) return;
+        var canvas = __instance.GetComponentInParent<Canvas>();
+        if (!canvas) return;
+        var root = canvas.rootCanvas;
+        var camera = root.renderMode == RenderMode.ScreenSpaceOverlay ? null : root.worldCamera;
+        Placed.Clear();
+        foreach (var text in __instance.WorldTexts)
+            if (text.m_type == Talker.Type.Ping && text.m_gui && text.m_gui.TryGetComponent<PingMarker>(out var marker))
+                marker.PlaceName(camera, Placed);
     }
 }
 
@@ -40,24 +104,38 @@ internal sealed class PingMarker : MonoBehaviour
     private SoftShade shade;
     private CanvasGroup group;
     private readonly List<Graphic> muted = new();
-    private float started, lifetime;
+    private float started, lifetime, nameY;
+    private RectTransform nativeRect;
+    private Vector2 nativeSize;
+    private Chat.WorldTextInstance entry;
 
     internal void Restart(Chat.WorldTextInstance text, float ttl)
     {
-        if (!pulse) Build(text);
+        if (!pulse) Build(text.m_textMeshField.font);
+        if (entry == null) nativeSize = nativeRect.sizeDelta;
+        entry = text;
         group.gameObject.SetActive(true);
         started = Time.time;
         lifetime = Mathf.Max(1, ttl);
         string name = text.m_name ?? "";
         if (label.text != name) label.text = name;
-        var size = label.GetPreferredValues(name);
-        shade.rectTransform.sizeDelta = new Vector2(Mathf.Min(size.x, 240) + 44, 34);
+        float width = Mathf.Clamp(Mathf.Ceil(label.GetPreferredValues(name).x) + 4, 30, 420);
+        float height = Mathf.Clamp(Mathf.Ceil(label.GetPreferredValues(name, width, Mathf.Infinity).y) + 6, 28, 100);
+        nameY = -Size * 0.5f - (height - 28) / 2 - 4;
+        HudStyle.Center(label.rectTransform, 0, nameY, width, height);
+        HudStyle.Center(shade.rectTransform, 0, nameY, width + 34, height + 6);
+        // Chat clamps the prefab's rect, not the custom children. Include the name below the
+        // pulse in those bounds so pings at the screen edges don't cut letters off.
+        nativeRect.sizeDelta = nativeSize;
+        nativeRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, Mathf.Max(nativeRect.rect.width, width + 34));
+        nativeRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, Mathf.Max(nativeRect.rect.height, -2 * nameY + height + 6));
         // The game sets its text on every ping; it stays hidden behind the pulse.
         Mute(text);
     }
 
-    private void Build(Chat.WorldTextInstance text)
+    private void Build(TMP_FontAsset font)
     {
+        nativeRect = (RectTransform)transform;
         var root = ItemUi.Rect(transform, "NewUI_Ping");
         HudStyle.Center(root, 0, 0, Size, Size);
         group = root.gameObject.AddComponent<CanvasGroup>();
@@ -68,13 +146,48 @@ internal sealed class PingMarker : MonoBehaviour
         pulse = ItemUi.Rect(root, "Pulse").gameObject.AddComponent<PingPulse>();
         pulse.raycastTarget = false;
         ItemUi.Stretch(pulse.rectTransform, Vector2.zero, Vector2.zero);
-        var font = text.m_textMeshField ? text.m_textMeshField.font : null;
-        label = ItemUi.Text(root, "Sender", HudStyle.BrandLight(font), 17, ItemUi.Ink);
+        // Nicknames are not headings: use the chat font and its fallback glyphs without markup.
+        label = ItemUi.Text(root, "Sender", font, 17, ItemUi.Ink);
         label.alignment = TextAlignmentOptions.Center;
-        label.textWrappingMode = TextWrappingModes.NoWrap;
-        label.overflowMode = TextOverflowModes.Ellipsis;
-        HudStyle.Center(label.rectTransform, 0, -Size * 0.5f - 4, 240, 22);
+        label.richText = false;
+        label.enableAutoSizing = true;
+        label.fontSizeMin = 12;
+        label.fontSizeMax = 17;
+        label.textWrappingMode = TextWrappingModes.Normal;
+        label.overflowMode = TextOverflowModes.Truncate;
     }
+
+    internal void PlaceName(Camera camera, List<Rect> placed)
+    {
+        if (!group || !group.gameObject.activeInHierarchy) return;
+        var rect = (RectTransform)group.transform;
+        var home = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(new Vector2(0, nameY)));
+        var corner = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(new Vector2(
+            shade.rectTransform.rect.width / 2, nameY + shade.rectTransform.rect.height / 2)));
+        var half = new Vector2(Mathf.Abs(corner.x - home.x), Mathf.Abs(corner.y - home.y));
+        var center = new Vector2(ClampCenter(home.x, half.x, Screen.width), ClampCenter(home.y, half.y, Screen.height));
+        var box = new Rect(center - half, half * 2);
+        // Keep pulses at their map positions. Only move names when their backgrounds overlap.
+        var below = box;
+        for (int i = placed.Count - 1; i >= 0; i--)
+            if (below.Overlaps(placed[i])) below.y = placed[i].yMin - box.height - 2;
+        if (below.yMin >= 2) box = below;
+        else
+        {
+            var above = box;
+            foreach (var other in placed)
+                if (above.Overlaps(other)) above.y = other.yMax + 2;
+            if (above.yMax <= Screen.height - 2) box = above;
+        }
+        int index = placed.Count;
+        while (index > 0 && placed[index - 1].yMin > box.yMin) index--;
+        placed.Insert(index, box);
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, box.center, camera, out var point))
+            label.rectTransform.anchoredPosition = shade.rectTransform.anchoredPosition = point;
+    }
+
+    private static float ClampCenter(float center, float half, float size) =>
+        half * 2 + 4 >= size ? size / 2 : Mathf.Clamp(center, half + 2, size - half - 2);
 
     private void Mute(Chat.WorldTextInstance text)
     {
@@ -95,7 +208,10 @@ internal sealed class PingMarker : MonoBehaviour
 
     internal void Restore()
     {
+        if (entry == null) return;
+        entry = null;
         if (group) group.gameObject.SetActive(false);
+        if (nativeRect) nativeRect.sizeDelta = nativeSize;
         foreach (var graphic in muted)
             if (graphic) graphic.enabled = true;
         muted.Clear();
@@ -106,7 +222,7 @@ internal sealed class PingMarker : MonoBehaviour
     private void Update()
     {
         if (!group || !group.gameObject.activeSelf) return;
-        if (!NativeMessagePatch.Enabled) { Restore(); return; }
+        if (!NativeMessagePatch.Enabled || entry?.m_type != Talker.Type.Ping) { Restore(); return; }
         float age = Time.time - started;
         // The marker fades out over its last second.
         group.alpha = Mathf.Clamp01((lifetime - age) / 1f) * Mathf.Clamp01(age * 6);
