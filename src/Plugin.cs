@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace ValheimNewUI;
 
-[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.2.0")]
+[BepInPlugin("local.valheimnewui.vitals", "Valheim New UI", "0.2.1")]
 public sealed class Plugin : BaseUnityPlugin
 {
     private string themePath, lastContent, lastReadError;

@@ -89,7 +89,7 @@ internal sealed class InterfaceSkin : IDisposable
             theme.CompassMarkerDistance);
         LifeNotices.Observe(player);
         onlinePlayers?.Refresh(player, visible && !covered && !inventoryOpen, theme.PlayerDetectionDistance);
-        items?.Refresh(inventory, player);
+        items?.Refresh(inventory, player, visible && !covered && !inventoryOpen && !building);
         combat?.Refresh(player, visible && !covered && !inventoryOpen && !building && !(player && player.IsTeleporting()));
         notifications?.Refresh(covered);
         actionProgress?.Refresh(hud, player, visible && !covered);

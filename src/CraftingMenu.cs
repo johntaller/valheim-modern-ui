@@ -50,7 +50,7 @@ internal sealed class CraftingMenu : IDisposable
     private bool wasOpen, pendingFilter;
     private float nextStyleScan;
 
-    internal CraftingMenu(InventoryGui gui, Artwork art, TMP_FontAsset font, OnlinePlayers players)
+    internal CraftingMenu(InventoryGui gui, Artwork art, TMP_FontAsset font, OnlinePlayers players, RecipePins pins)
     {
         Gui = gui;
         this.art = art;
@@ -61,7 +61,7 @@ internal sealed class CraftingMenu : IDisposable
         gui.m_recipeListSpace = Mathf.Max(36, spacing);
         recipeScroll = gui.m_recipeListRoot.GetComponentInParent<ScrollRect>(true);
         layout = new CraftingLayout(gui, style, art, font);
-        if (gui.m_recipeDecription && gui.m_recipeName) card = new RecipeCard(gui, style, art, font);
+        if (gui.m_recipeDecription && gui.m_recipeName) card = new RecipeCard(gui, style, art, font, pins);
 
         var craft = gui.m_crafting;
         content = ItemUi.Rect(craft.parent, "NewUI_InventoryPage");
